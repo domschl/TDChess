@@ -1,120 +1,134 @@
-# TDChess
+A chess engine with neural network evaluation and TD(λ) learning capabilities.
 
-TDChess is a chess engine written in C that implements standard chess rules and provides performance benchmarking capabilities. The engine includes a move generator with comprehensive PERFT testing to verify correctness.
+## Architecture
 
-This project is entirely written by AI, demonstrating the capabilities of modern AI systems in creating functional chess engines.
+TDChess is a modular chess engine built in C (C23 standard) that combines traditional alpha-beta search with neural network evaluation trained using Temporal Difference (TD) learning.
 
-## Features
+### Core Components
 
-- Standard chess rules implementation
-- Efficient move generation
-- Interactive mode for playing
-- Performance testing (PERFT) for move generation
-- Comprehensive test suite with standard chess positions
+- **Board Representation**: Uses a 64-square array with piece-color encoding for efficient state representation
+- **Move Generation**: Legal move generator with bitboard-based attack detection
+- **Evaluation**: 
+  - Classical static evaluation function (material, piece positions)
+  - Neural network evaluation using ONNX Runtime
+- **Search**: 
+  - Alpha-beta search with move ordering and transposition tables
+  - Configurable search depth
+- **Neural Network**: 
+  - 14-channel input (6 piece types × 2 colors + 2 state planes)
+  - Convolutional architecture with value head
+  - ONNX model support for cross-platform compatibility
+- **TD(λ) Learning**: Temporal difference learning with configurable λ parameter
 
-## Building from Source
+### Neural Network Architecture
 
-### Prerequisites
+The neural network uses a CNN architecture specialized for chess position evaluation:
 
-- C compiler with C23 support
-- CMake (3.14 or higher)
-- Ninja build system
+- **Input**: 14 planes of 8×8 boards
+  - 12 piece planes (6 piece types × 2 colors)
+  - 1 side-to-move plane
+  - 1 en-passant plane
+- **Convolutional Layers**:
+  - First layer: 64 filters with 3×3 kernels
+  - Second layer: 128 filters with 3×3 kernels
+  - Third layer: 64 filters with 3×3 kernels
+- **Value Head**:
+  - Fully connected layers (4096 → 256 → 64 → 1)
+  - Final tanh activation to produce evaluation in [-1, 1] range
+  - Scaled to centipawns for traditional chess evaluation
 
-### Build Instructions
+## Building
+
+TDChess uses CMake with Ninja as the build system.
 
 ```bash
-# Create a build directory
-mkdir -p build && cd build
-
-# Configure with CMake
+mkdir build
+cd build
 cmake -G Ninja ..
-
-# Build the project
 ninja
-
-# Alternatively, to build and run tests in one command
-ninja && ./TDChess test 3
 ```
 
 ## Usage
 
-TDChess provides several command-line options:
+TDChess supports multiple modes of operation:
 
-### Interactive Mode
+### Basic Commands
 
-```bash
-./TDChess
 ```
+# Run perft (performance test) to count legal moves
+./TDChess perft [depth]
 
-This launches TDChess in interactive mode where you can play against the engine.
+# Show detailed perft results
+./TDChess perft-detail [depth]
 
-### PERFT Testing
-
-```bash
-# Run PERFT to a specific depth (e.g., 5)
-./TDChess perft 5
-
-# Show detailed PERFT results for a specific depth
-./TDChess perft-detail 2
-
-# Run a comprehensive suite of PERFT tests on standard positions
+# Run perft tests on standard positions
 ./TDChess test [max_depth]
+
+# Test evaluation function
+./TDChess eval
+
+# Play against the engine with classical evaluation
+./TDChess play [depth]
 ```
 
-PERFT (Performance Test) is a move generation testing technique that counts all possible legal moves to a specific depth. It's used to verify move generator correctness.
+### Neural Network Commands
 
-### Example PERFT Results
+```
+# Test neural input representation
+./TDChess neural
 
-For the standard starting position:
-- Depth 1: 20 moves
-- Depth 2: 400 moves
-- Depth 3: 8,902 moves
-- Depth 4: 197,281 moves
-- Depth 5: 4,865,609 moves
+# Test neural evaluation with a trained model
+./TDChess neural-eval [model]
 
-## Neural Evaluation Implementation Plan
+# Play against the engine with neural evaluation
+./TDChess play-neural [model] [depth]
+```
 
-TDChess will use a neural network for position evaluation. The implementation plan follows these steps:
+### Training Commands
 
-### 1. Basic Evaluation Function (C)
-- Implement a simple material-based evaluator in C
-- Create the evaluation interface that will later support neural evaluation
-- Test with simple gameplay mechanics
+```
+# Generate training dataset
+./TDChess generate-dataset [file] [count] [depth]
 
-### 2. Board Representation for Neural Input (C)
-- Create conversion functions from Board to tensor format
-- Implement piece planes and auxiliary feature planes
-- Design efficient memory layout for ONNX compatibility
+# Run TD-Lambda training cycle
+./TDChess td-lambda [initial_model] [output_model] [games] [lambda]
+```
 
-### 3. ONNX Runtime Integration (C)
-- Add ONNX Runtime as a dependency in CMake
-- Create wrapper functions for model loading and inference
-- Implement session management and memory handling
+### Training pipeline
 
-### 4. Python Bindings
-- Create Python bindings for TDChess
-- Expose board manipulation and move generation to Python
-- Implement tensor conversion functions for PyTorch
+TDChess implements a complete neural network training pipeline:
 
-### 5. Neural Network Architecture (Python/PyTorch)
-- Implement CNN architecture in PyTorch
-- Create model classes with appropriate input/output handling
-- Set up testing infrastructure for model validation
+1. Dataset Generation: Create training positions from self-play or existing games
+2. Neural Training: Train the model using supervised learning on the dataset
+3. TD(λ) Learning: Improve the model through temporal difference learning
+4. Iterative Refinement: Continuously improve the model through self-play
 
-### 6. Training Pipeline (Python)
-- Create self-play generation code
-- Implement position storage and batch creation
-- Set up training loop with optimization
+Example training workflow:
 
-### 7. TD(λ) Learning Implementation (Python)
-- Implement temporal difference learning logic
-- Add eligibility traces for TD(λ)
-- Create utilities for saving/loading models
+```
+# Generate initial dataset
+./TDChess generate-dataset chess_dataset.json 10000 3
 
-### 8. ONNX Export (Python to C)
-- Add export functionality to save PyTorch models as ONNX
-- Verify compatibility with ONNX Runtime
-- Create versioning system for models
+# Train initial model
+python train_neural.py --dataset chess_dataset.json --output chess_model.onnx --epochs 500 --batch-size 128
+
+# Run TD-Lambda training
+./TDChess td-lambda chess_model.onnx chess_model_improved.onnx 200 0.7
+
+# Test the improved model
+./TDChess play-neural chess_model_improved.onnx 4
+```
+
+or simply use `train_pipeline.sh`.
+
+## Dependencies
+
+- C compiler with C23 support
+- CMake 3.12+
+- Ninja build system
+- UV for the python part
+
+## TODOs
 
 ### 9. Integration and Testing (C)
 - Integrate neural evaluation into the main search
