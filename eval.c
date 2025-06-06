@@ -212,8 +212,8 @@ void print_evaluation_details(const Board *board) {
         if (is_square_attacked(board, sq, !piece.color)) {
             printf("  %c at %c%d is under attack\n",
                    "PNBRQK"[piece.type - 1],
-                   'a' + FILE(sq),
-                   RANK(sq) + 1);
+                   'a' + SQUARE_FILE(sq),
+                   SQUARE_RANK(sq) + 1);
         }
     }
 }

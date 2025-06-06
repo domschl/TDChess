@@ -9,18 +9,36 @@ static void init_move_list(MoveList *list) {
     list->count = 0;
 }
 
-// Add a move to the move list
-void add_move(MoveList *list, int from, int to, PieceType promotion, bool capture, bool castling, bool en_passant, int captured_square) {
-    if (list->count < MAX_MOVES) {
-        Move *move = &list->moves[list->count++];
-        move->from = from;
-        move->to = to;
-        move->promotion = promotion;
-        move->capture = capture;
-        move->castling = castling;
-        move->en_passant = en_passant;
-        move->captured_piece_square = captured_square;
+// Update the add_move function to initialize new fields
+
+static void add_move(MoveList *list, int from, int to, PieceType promotion, bool capture, bool castling, bool en_passant, int captured_square) {
+    // Check if the list is full
+    if (list->count >= MAX_MOVES) {
+        return;
     }
+
+    // Initialize the move
+    Move move;
+    move.from = from;
+    move.to = to;
+    move.promotion = promotion;
+    move.capture = capture;
+    move.castling = castling;
+    move.en_passant = en_passant;
+    move.captured_piece_square = captured_square;
+
+    // Initialize state preservation fields with default values
+    // These will be properly set by make_move
+    move.captured_piece_type = EMPTY;
+    move.captured_piece_color = WHITE;  // Default value, will be overwritten if capture
+    move.old_castle_rights = 0;
+    move.old_en_passant = -1;
+    move.old_halfmove_clock = 0;
+
+    // Add the move to the list
+    list->moves[list->count] = move;
+    list->scores[list->count] = 0;  // Initialize move score
+    list->count++;
 }
 
 // Generate all pseudo-legal moves for a position
@@ -55,7 +73,7 @@ bool is_move_legal(const Board *board, Move move) {
     Board temp_board = *board;
 
     // Make the move on the copy
-    make_move(&temp_board, move);
+    make_move(&temp_board, &move);
 
     // Find the king of the side that just moved
     Color side = board->side_to_move;
@@ -89,8 +107,8 @@ void generate_pawn_moves(const Board *board, MoveList *list) {
 
     // Direction pawns move (up for white, down for black)
     int pawn_push = (side == WHITE) ? 8 : -8;
-    int start_rank = (side == WHITE) ? RANK_2 : RANK_7;
-    int promotion_rank = (side == WHITE) ? RANK_7 : RANK_2;
+    int start_rank = (side == WHITE) ? SQUARE_RANK_2 : SQUARE_RANK_7;
+    int promotion_rank = (side == WHITE) ? SQUARE_RANK_7 : SQUARE_RANK_2;
 
     // Get all pawns of the current side
     for (int sq = 0; sq < 64; sq++) {
@@ -98,8 +116,8 @@ void generate_pawn_moves(const Board *board, MoveList *list) {
             continue;
         }
 
-        int file = FILE(sq);
-        int rank = RANK(sq);
+        int file = SQUARE_FILE(sq);
+        int rank = SQUARE_RANK(sq);
 
         // Single push
         int to_sq = sq + pawn_push;
@@ -177,10 +195,10 @@ void generate_knight_moves(const Board *board, MoveList *list) {
                 if (to < 0 || to >= 64) continue;
 
                 // Check if the knight's move is valid (not wrapping around the board)
-                int from_file = FILE(square);
-                int from_rank = RANK(square);
-                int to_file = FILE(to);
-                int to_rank = RANK(to);
+                int from_file = SQUARE_FILE(square);
+                int from_rank = SQUARE_RANK(square);
+                int to_file = SQUARE_FILE(to);
+                int to_rank = SQUARE_RANK(to);
 
                 int file_diff = abs(from_file - to_file);
                 int rank_diff = abs(from_rank - to_rank);
@@ -209,8 +227,8 @@ void generate_bishop_moves(const Board *board, MoveList *list) {
 
     for (int square = 0; square < 64; square++) {
         if (board->pieces[square].type == BISHOP && board->pieces[square].color == side) {
-            int from_file = FILE(square);
-            int from_rank = RANK(square);
+            int from_file = SQUARE_FILE(square);
+            int from_rank = SQUARE_RANK(square);
 
             for (int i = 0; i < 4; i++) {
                 int dir = bishop_dirs[i];
@@ -224,8 +242,8 @@ void generate_bishop_moves(const Board *board, MoveList *list) {
                     // Check if the target square is on the board
                     if (to < 0 || to >= 64) break;
 
-                    int to_file = FILE(to);
-                    int to_rank = RANK(to);
+                    int to_file = SQUARE_FILE(to);
+                    int to_rank = SQUARE_RANK(to);
 
                     // Check if we've moved diagonally (file and rank should change by the same amount)
                     int file_diff = abs(to_file - current_file);
@@ -264,8 +282,8 @@ void generate_rook_moves(const Board *board, MoveList *list) {
 
     for (int square = 0; square < 64; square++) {
         if (board->pieces[square].type == ROOK && board->pieces[square].color == side) {
-            int from_file = FILE(square);
-            int from_rank = RANK(square);
+            int from_file = SQUARE_FILE(square);
+            int from_rank = SQUARE_RANK(square);
 
             for (int i = 0; i < 4; i++) {
                 int dir = rook_dirs[i];
@@ -279,8 +297,8 @@ void generate_rook_moves(const Board *board, MoveList *list) {
                     // Check if the target square is on the board
                     if (to < 0 || to >= 64) break;
 
-                    int to_file = FILE(to);
-                    int to_rank = RANK(to);
+                    int to_file = SQUARE_FILE(to);
+                    int to_rank = SQUARE_RANK(to);
 
                     // Check if we're moving horizontally or vertically (not wrapping around the board)
                     if (dir == 1 || dir == -1) {  // Horizontal movement
@@ -320,8 +338,8 @@ void generate_queen_moves(const Board *board, MoveList *list) {
 
     for (int square = 0; square < 64; square++) {
         if (board->pieces[square].type == QUEEN && board->pieces[square].color == side) {
-            int from_file = FILE(square);
-            int from_rank = RANK(square);
+            int from_file = SQUARE_FILE(square);
+            int from_rank = SQUARE_RANK(square);
 
             for (int i = 0; i < 8; i++) {
                 int dir = queen_dirs[i];
@@ -335,8 +353,8 @@ void generate_queen_moves(const Board *board, MoveList *list) {
                     // Check if the target square is on the board
                     if (to < 0 || to >= 64) break;
 
-                    int to_file = FILE(to);
-                    int to_rank = RANK(to);
+                    int to_file = SQUARE_FILE(to);
+                    int to_rank = SQUARE_RANK(to);
 
                     // Check move validity based on direction
                     if (dir == -9 || dir == 7 || dir == -7 || dir == 9) {  // Diagonal moves
@@ -387,10 +405,10 @@ void generate_king_moves(const Board *board, MoveList *list) {
                 if (to < 0 || to >= 64) continue;
 
                 // Check if the move doesn't wrap around the board
-                int from_file = FILE(square);
-                int from_rank = RANK(square);
-                int to_file = FILE(to);
-                int to_rank = RANK(to);
+                int from_file = SQUARE_FILE(square);
+                int from_rank = SQUARE_RANK(square);
+                int to_file = SQUARE_FILE(to);
+                int to_rank = SQUARE_RANK(to);
 
                 int file_diff = abs(from_file - to_file);
                 int rank_diff = abs(from_rank - to_rank);
@@ -409,51 +427,51 @@ void generate_king_moves(const Board *board, MoveList *list) {
             if (side == WHITE) {
                 // White kingside castling
                 if ((board->castle_rights & CASTLE_WHITE_KINGSIDE) &&
-                    board->pieces[SQUARE(FILE_F, RANK_1)].type == EMPTY &&
-                    board->pieces[SQUARE(FILE_G, RANK_1)].type == EMPTY) {
+                    board->pieces[SQUARE(SQUARE_FILE_F, SQUARE_RANK_1)].type == EMPTY &&
+                    board->pieces[SQUARE(SQUARE_FILE_G, SQUARE_RANK_1)].type == EMPTY) {
 
                     // Check if king and path to castling are not in check
                     if (!is_square_attacked(board, square, BLACK) &&
-                        !is_square_attacked(board, SQUARE(FILE_F, RANK_1), BLACK)) {
-                        add_move(list, square, SQUARE(FILE_G, RANK_1), EMPTY, false, true, false, -1);
+                        !is_square_attacked(board, SQUARE(SQUARE_FILE_F, SQUARE_RANK_1), BLACK)) {
+                        add_move(list, square, SQUARE(SQUARE_FILE_G, SQUARE_RANK_1), EMPTY, false, true, false, -1);
                     }
                 }
 
                 // White queenside castling
                 if ((board->castle_rights & CASTLE_WHITE_QUEENSIDE) &&
-                    board->pieces[SQUARE(FILE_D, RANK_1)].type == EMPTY &&
-                    board->pieces[SQUARE(FILE_C, RANK_1)].type == EMPTY &&
-                    board->pieces[SQUARE(FILE_B, RANK_1)].type == EMPTY) {
+                    board->pieces[SQUARE(SQUARE_FILE_D, SQUARE_RANK_1)].type == EMPTY &&
+                    board->pieces[SQUARE(SQUARE_FILE_C, SQUARE_RANK_1)].type == EMPTY &&
+                    board->pieces[SQUARE(SQUARE_FILE_B, SQUARE_RANK_1)].type == EMPTY) {
 
                     // Check if king and path to castling are not in check
                     if (!is_square_attacked(board, square, BLACK) &&
-                        !is_square_attacked(board, SQUARE(FILE_D, RANK_1), BLACK)) {
-                        add_move(list, square, SQUARE(FILE_C, RANK_1), EMPTY, false, true, false, -1);
+                        !is_square_attacked(board, SQUARE(SQUARE_FILE_D, SQUARE_RANK_1), BLACK)) {
+                        add_move(list, square, SQUARE(SQUARE_FILE_C, SQUARE_RANK_1), EMPTY, false, true, false, -1);
                     }
                 }
             } else {
                 // Black kingside castling
                 if ((board->castle_rights & CASTLE_BLACK_KINGSIDE) &&
-                    board->pieces[SQUARE(FILE_F, RANK_8)].type == EMPTY &&
-                    board->pieces[SQUARE(FILE_G, RANK_8)].type == EMPTY) {
+                    board->pieces[SQUARE(SQUARE_FILE_F, SQUARE_RANK_8)].type == EMPTY &&
+                    board->pieces[SQUARE(SQUARE_FILE_G, SQUARE_RANK_8)].type == EMPTY) {
 
                     // Check if king and path to castling are not in check
                     if (!is_square_attacked(board, square, WHITE) &&
-                        !is_square_attacked(board, SQUARE(FILE_F, RANK_8), WHITE)) {
-                        add_move(list, square, SQUARE(FILE_G, RANK_8), EMPTY, false, true, false, -1);
+                        !is_square_attacked(board, SQUARE(SQUARE_FILE_F, SQUARE_RANK_8), WHITE)) {
+                        add_move(list, square, SQUARE(SQUARE_FILE_G, SQUARE_RANK_8), EMPTY, false, true, false, -1);
                     }
                 }
 
                 // Black queenside castling
                 if ((board->castle_rights & CASTLE_BLACK_QUEENSIDE) &&
-                    board->pieces[SQUARE(FILE_D, RANK_8)].type == EMPTY &&
-                    board->pieces[SQUARE(FILE_C, RANK_8)].type == EMPTY &&
-                    board->pieces[SQUARE(FILE_B, RANK_8)].type == EMPTY) {
+                    board->pieces[SQUARE(SQUARE_FILE_D, SQUARE_RANK_8)].type == EMPTY &&
+                    board->pieces[SQUARE(SQUARE_FILE_C, SQUARE_RANK_8)].type == EMPTY &&
+                    board->pieces[SQUARE(SQUARE_FILE_B, SQUARE_RANK_8)].type == EMPTY) {
 
                     // Check if king and path to castling are not in check
                     if (!is_square_attacked(board, square, WHITE) &&
-                        !is_square_attacked(board, SQUARE(FILE_D, RANK_8), WHITE)) {
-                        add_move(list, square, SQUARE(FILE_C, RANK_8), EMPTY, false, true, false, -1);
+                        !is_square_attacked(board, SQUARE(SQUARE_FILE_D, SQUARE_RANK_8), WHITE)) {
+                        add_move(list, square, SQUARE(SQUARE_FILE_C, SQUARE_RANK_8), EMPTY, false, true, false, -1);
                     }
                 }
             }
@@ -462,167 +480,186 @@ void generate_king_moves(const Board *board, MoveList *list) {
         }
     }
 }
+// Implementation of update_castling_rights and update_bitboards functions
+
+/**
+ * Updates the castling rights based on king and rook movements
+ *
+ * @param board The board structure
+ * @param from Source square of the move
+ * @param to Destination square of the move
+ */
+static void update_castling_rights(Board *board, int from, int to) {
+    // If no castling rights remain, return early
+    if (board->castle_rights == 0) {
+        return;
+    }
+
+    // Check if a king moved
+    if (board->pieces[to].type == KING) {
+        if (board->pieces[to].color == WHITE) {
+            // White king moved, remove white castling rights
+            board->castle_rights &= ~(CASTLE_WHITE_KINGSIDE | CASTLE_WHITE_QUEENSIDE);
+        } else {
+            // Black king moved, remove black castling rights
+            board->castle_rights &= ~(CASTLE_BLACK_KINGSIDE | CASTLE_BLACK_QUEENSIDE);
+        }
+    }
+
+    // Check if a rook moved or was captured
+    // White kingside rook
+    if (from == H1 || to == H1) {
+        board->castle_rights &= ~CASTLE_WHITE_KINGSIDE;
+    }
+    // White queenside rook
+    if (from == A1 || to == A1) {
+        board->castle_rights &= ~CASTLE_WHITE_QUEENSIDE;
+    }
+    // Black kingside rook
+    if (from == H8 || to == H8) {
+        board->castle_rights &= ~CASTLE_BLACK_KINGSIDE;
+    }
+    // Black queenside rook
+    if (from == A8 || to == A8) {
+        board->castle_rights &= ~CASTLE_BLACK_QUEENSIDE;
+    }
+}
+
+/**
+ * Updates all bitboards to match the piece array
+ * This ensures consistency between the two board representations
+ *
+ * @param board The board structure
+ */
+static void update_bitboards(Board *board) {
+    // Clear all bitboards
+    for (int color = WHITE; color <= BLACK; color++) {
+        board->occupied[color] = 0;
+        for (int piece_type = PAWN; piece_type <= KING; piece_type++) {
+            board->piece_bb[color][piece_type] = 0;
+        }
+    }
+    board->all_pieces = 0;
+
+    // Populate bitboards based on piece array
+    for (int sq = 0; sq < 64; sq++) {
+        Piece piece = board->pieces[sq];
+        if (piece.type != EMPTY) {
+            Bitboard bb = square_to_bitboard(sq);
+
+            // Update piece-specific bitboard
+            board->piece_bb[piece.color][piece.type] |= bb;
+
+            // Update color bitboard
+            board->occupied[piece.color] |= bb;
+
+            // Update combined bitboard
+            board->all_pieces |= bb;
+        }
+    }
+}
 
 // Make a move on the board
-void make_move(Board *board, Move move) {
-    int from = move.from;
-    int to = move.to;
+bool make_move(Board *board, Move *move) {
+    // Store state information for unmake_move
+    move->old_castle_rights = board->castle_rights;
+    move->old_en_passant = board->en_passant_square;
+    move->old_halfmove_clock = board->halfmove_clock;
 
-    Piece piece = board->pieces[from];
-    Piece captured_piece = {EMPTY, 0};
+    // Get the moving piece
+    Piece moving_piece = board->pieces[move->from];
+
+    // Store information about any captured piece
+    if (move->capture) {
+        if (move->en_passant) {
+            // For en passant, the captured piece is a pawn on a different square
+            int captured_square = (board->side_to_move == WHITE) ? (move->to - 8) : (move->to + 8);
+            move->captured_piece_type = PAWN;
+            move->captured_piece_color = (board->side_to_move == WHITE) ? BLACK : WHITE;
+
+            // Clear the captured pawn
+            board->pieces[captured_square].type = EMPTY;
+        } else {
+            // Normal capture - store the captured piece information
+            move->captured_piece_type = board->pieces[move->to].type;
+            move->captured_piece_color = board->pieces[move->to].color;
+        }
+    } else {
+        // No capture
+        move->captured_piece_type = EMPTY;
+    }
+
+    // Move the piece
+    board->pieces[move->to] = board->pieces[move->from];
+    board->pieces[move->from].type = EMPTY;
+
+    // Handle promotion
+    if (move->promotion != EMPTY) {
+        board->pieces[move->to].type = move->promotion;
+    }
 
     // Handle castling
-    if (move.castling) {
-        // Move the king
-        board->pieces[to] = board->pieces[from];
-        board->pieces[from].type = EMPTY;
+    if (move->castling) {
+        // Get rook positions based on king's move
+        int rook_from = 0, rook_to = 0;
 
-        // Update bitboards for the king
-        Bitboard from_bb = square_to_bitboard(from);
-        Bitboard to_bb = square_to_bitboard(to);
-        board->piece_bb[piece.color][KING] &= ~from_bb;
-        board->piece_bb[piece.color][KING] |= to_bb;
-        board->occupied[piece.color] &= ~from_bb;
-        board->occupied[piece.color] |= to_bb;
+        // Determine rook squares based on the king's move
+        if (move->from == E1 && move->to == G1) {
+            // White kingside
+            rook_from = H1;
+            rook_to = F1;
+        } else if (move->from == E1 && move->to == C1) {
+            // White queenside
+            rook_from = A1;
+            rook_to = D1;
+        } else if (move->from == E8 && move->to == G8) {
+            // Black kingside
+            rook_from = H8;
+            rook_to = F8;
+        } else if (move->from == E8 && move->to == C8) {
+            // Black queenside
+            rook_from = A8;
+            rook_to = D8;
+        }
 
         // Move the rook
-        int rook_from, rook_to;
-        if (to > from) {
-            // Kingside castling
-            rook_from = (piece.color == WHITE) ? SQUARE(FILE_H, RANK_1) : SQUARE(FILE_H, RANK_8);
-            rook_to = (piece.color == WHITE) ? SQUARE(FILE_F, RANK_1) : SQUARE(FILE_F, RANK_8);
-        } else {
-            // Queenside castling
-            rook_from = (piece.color == WHITE) ? SQUARE(FILE_A, RANK_1) : SQUARE(FILE_A, RANK_8);
-            rook_to = (piece.color == WHITE) ? SQUARE(FILE_D, RANK_1) : SQUARE(FILE_D, RANK_8);
-        }
-
         board->pieces[rook_to] = board->pieces[rook_from];
         board->pieces[rook_from].type = EMPTY;
-
-        // Update bitboards for the rook
-        Bitboard rook_from_bb = square_to_bitboard(rook_from);
-        Bitboard rook_to_bb = square_to_bitboard(rook_to);
-        board->piece_bb[piece.color][ROOK] &= ~rook_from_bb;
-        board->piece_bb[piece.color][ROOK] |= rook_to_bb;
-        board->occupied[piece.color] &= ~rook_from_bb;
-        board->occupied[piece.color] |= rook_to_bb;
-    }
-    // Handle en passant capture
-    else if (move.en_passant) {
-        // Move the pawn
-        board->pieces[to] = board->pieces[from];
-        board->pieces[from].type = EMPTY;
-
-        // Update bitboards for the pawn
-        Bitboard from_bb = square_to_bitboard(from);
-        Bitboard to_bb = square_to_bitboard(to);
-        board->piece_bb[piece.color][PAWN] &= ~from_bb;
-        board->piece_bb[piece.color][PAWN] |= to_bb;
-        board->occupied[piece.color] &= ~from_bb;
-        board->occupied[piece.color] |= to_bb;
-
-        // Capture the opponent's pawn
-        int captured = move.captured_piece_square;
-        captured_piece = board->pieces[captured];
-        board->pieces[captured].type = EMPTY;
-
-        // Update bitboards for the captured pawn
-        Bitboard captured_bb = square_to_bitboard(captured);
-        board->piece_bb[captured_piece.color][PAWN] &= ~captured_bb;
-        board->occupied[captured_piece.color] &= ~captured_bb;
-    }
-    // Handle regular move or capture
-    else {
-        // Check for capture
-        if (move.capture) {
-            captured_piece = board->pieces[to];
-
-            // Update bitboards for the captured piece
-            Bitboard to_bb = square_to_bitboard(to);
-            board->piece_bb[captured_piece.color][captured_piece.type] &= ~to_bb;
-            board->occupied[captured_piece.color] &= ~to_bb;
-        }
-
-        // Move the piece
-        if (move.promotion != EMPTY) {
-            board->pieces[to].type = move.promotion;
-            board->pieces[to].color = piece.color;
-        } else {
-            board->pieces[to] = piece;
-        }
-        board->pieces[from].type = EMPTY;
-
-        // Update bitboards
-        Bitboard from_bb = square_to_bitboard(from);
-        Bitboard to_bb = square_to_bitboard(to);
-
-        // Clear the piece from the 'from' square
-        board->piece_bb[piece.color][piece.type] &= ~from_bb;
-        board->occupied[piece.color] &= ~from_bb;
-
-        // Set the piece on the 'to' square
-        PieceType final_type = move.promotion != EMPTY ? move.promotion : piece.type;
-        board->piece_bb[piece.color][final_type] |= to_bb;
-        board->occupied[piece.color] |= to_bb;
-    }
-
-    // Update all pieces bitboard
-    board->all_pieces = board->occupied[WHITE] | board->occupied[BLACK];
-
-    // Update en passant square
-    if (piece.type == PAWN && abs(to - from) == 16) {
-        // Double pawn push
-        board->en_passant_square = (from + to) / 2;  // The square in between
-    } else {
-        board->en_passant_square = -1;
     }
 
     // Update castling rights
-    if (piece.type == KING) {
-        if (piece.color == WHITE) {
-            board->castle_rights &= ~(CASTLE_WHITE_KINGSIDE | CASTLE_WHITE_QUEENSIDE);
-        } else {
-            board->castle_rights &= ~(CASTLE_BLACK_KINGSIDE | CASTLE_BLACK_QUEENSIDE);
-        }
-    } else if (piece.type == ROOK) {
-        if (from == SQUARE(FILE_A, RANK_1)) {
-            board->castle_rights &= ~CASTLE_WHITE_QUEENSIDE;
-        } else if (from == SQUARE(FILE_H, RANK_1)) {
-            board->castle_rights &= ~CASTLE_WHITE_KINGSIDE;
-        } else if (from == SQUARE(FILE_A, RANK_8)) {
-            board->castle_rights &= ~CASTLE_BLACK_QUEENSIDE;
-        } else if (from == SQUARE(FILE_H, RANK_8)) {
-            board->castle_rights &= ~CASTLE_BLACK_KINGSIDE;
-        }
+    update_castling_rights(board, move->from, move->to);
+
+    // Update the en passant square
+    if (moving_piece.type == PAWN && abs(move->to - move->from) == 16) {
+        // Double pawn push - set en passant square
+        board->en_passant_square = (move->from + move->to) / 2;
+    } else {
+        // Clear en passant square
+        board->en_passant_square = -1;
     }
 
-    // If a rook is captured, update castling rights
-    if (captured_piece.type == ROOK) {
-        if (to == SQUARE(FILE_A, RANK_1)) {
-            board->castle_rights &= ~CASTLE_WHITE_QUEENSIDE;
-        } else if (to == SQUARE(FILE_H, RANK_1)) {
-            board->castle_rights &= ~CASTLE_WHITE_KINGSIDE;
-        } else if (to == SQUARE(FILE_A, RANK_8)) {
-            board->castle_rights &= ~CASTLE_BLACK_QUEENSIDE;
-        } else if (to == SQUARE(FILE_H, RANK_8)) {
-            board->castle_rights &= ~CASTLE_BLACK_KINGSIDE;
-        }
-    }
-
-    // Update move counters
-    if (piece.type == PAWN || move.capture) {
+    // Update halfmove clock
+    if (moving_piece.type == PAWN || move->capture) {
+        // Pawn move or capture - reset halfmove clock
         board->halfmove_clock = 0;
     } else {
+        // Increment halfmove clock
         board->halfmove_clock++;
     }
 
-    if (piece.color == BLACK) {
+    // Update fullmove number
+    if (board->side_to_move == BLACK) {
         board->fullmove_number++;
     }
 
-    // Switch sides
-    board->side_to_move = !board->side_to_move;
+    // Switch side to move
+    board->side_to_move = (board->side_to_move == WHITE) ? BLACK : WHITE;
+
+    // Update bitboards
+    update_bitboards(board);
+
+    return true;
 }
 
 // Convert move to algebraic notation
@@ -632,10 +669,10 @@ char *move_to_string(Move move) {
     char files[8] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'};
     char ranks[8] = {'1', '2', '3', '4', '5', '6', '7', '8'};
 
-    int from_file = FILE(move.from);
-    int from_rank = RANK(move.from);
-    int to_file = FILE(move.to);
-    int to_rank = RANK(move.to);
+    int from_file = SQUARE_FILE(move.from);
+    int from_rank = SQUARE_RANK(move.from);
+    int to_file = SQUARE_FILE(move.to);
+    int to_rank = SQUARE_RANK(move.to);
 
     str[0] = files[from_file];
     str[1] = ranks[from_rank];
@@ -746,7 +783,7 @@ void generate_pawn_captures(const Board *board, MoveList *list) {
 
     // Direction pawns move (up for white, down for black)
     int pawn_push = (side == WHITE) ? 8 : -8;
-    int promotion_rank = (side == WHITE) ? RANK_7 : RANK_2;
+    int promotion_rank = (side == WHITE) ? SQUARE_RANK_7 : SQUARE_RANK_2;
 
     // Get all pawns of the current side
     for (int sq = 0; sq < 64; sq++) {
@@ -754,8 +791,8 @@ void generate_pawn_captures(const Board *board, MoveList *list) {
             continue;
         }
 
-        int file = FILE(sq);
-        int rank = RANK(sq);
+        int file = SQUARE_FILE(sq);
+        int rank = SQUARE_RANK(sq);
 
         // Promotion is considered a "capture" for quiescence search
         if (rank == promotion_rank) {
@@ -817,8 +854,8 @@ void generate_knight_captures(const Board *board, MoveList *list) {
             continue;
         }
 
-        int from_file = FILE(sq);
-        int from_rank = RANK(sq);
+        int from_file = SQUARE_FILE(sq);
+        int from_rank = SQUARE_RANK(sq);
 
         // Try each knight move
         for (int i = 0; i < 8; i++) {
@@ -847,8 +884,7 @@ void generate_bishop_captures(const Board *board, MoveList *list) {
 
     // Bishop movement directions (diagonal)
     int bishop_dirs[4][2] = {
-        {-1, -1}, {-1, 1}, {1, -1}, {1, 1}
-    };
+        {-1, -1}, {-1, 1}, {1, -1}, {1, 1}};
 
     // Get all bishops of the current side
     for (int sq = 0; sq < 64; sq++) {
@@ -856,8 +892,8 @@ void generate_bishop_captures(const Board *board, MoveList *list) {
             continue;
         }
 
-        int from_file = FILE(sq);
-        int from_rank = RANK(sq);
+        int from_file = SQUARE_FILE(sq);
+        int from_rank = SQUARE_RANK(sq);
 
         // Try each direction
         for (int i = 0; i < 4; i++) {
@@ -905,8 +941,8 @@ void generate_rook_captures(const Board *board, MoveList *list) {
             continue;
         }
 
-        int from_file = FILE(sq);
-        int from_rank = RANK(sq);
+        int from_file = SQUARE_FILE(sq);
+        int from_rank = SQUARE_RANK(sq);
 
         // Try each direction
         for (int i = 0; i < 4; i++) {
@@ -954,8 +990,8 @@ void generate_queen_captures(const Board *board, MoveList *list) {
             continue;
         }
 
-        int from_file = FILE(sq);
-        int from_rank = RANK(sq);
+        int from_file = SQUARE_FILE(sq);
+        int from_rank = SQUARE_RANK(sq);
 
         // Try each direction
         for (int i = 0; i < 8; i++) {
@@ -1008,8 +1044,8 @@ void generate_king_captures(const Board *board, MoveList *list) {
 
     if (king_sq == -1) return;  // No king found (shouldn't happen in a valid position)
 
-    int from_file = FILE(king_sq);
-    int from_rank = RANK(king_sq);
+    int from_file = SQUARE_FILE(king_sq);
+    int from_rank = SQUARE_RANK(king_sq);
 
     // Try each king move
     for (int i = 0; i < 8; i++) {
@@ -1028,4 +1064,98 @@ void generate_king_captures(const Board *board, MoveList *list) {
             add_move(list, king_sq, to_sq, EMPTY, true, false, false, -1);
         }
     }
+}
+
+// Correct implementation of unmake_move
+
+void unmake_move(Board *board, Move move) {
+    // Switch side to move back
+    board->side_to_move = (board->side_to_move == WHITE) ? BLACK : WHITE;
+
+    // If it was black's move, decrement the full move counter
+    if (board->side_to_move == WHITE) {
+        board->fullmove_number--;
+    }
+
+    // Handle castling
+    if (move.castling) {
+        // Get rook positions based on king's move
+        int rook_from = 0, rook_to = 0;
+
+        // Determine rook squares based on the king's move
+        if (move.from == E1 && move.to == G1) {
+            // White kingside
+            rook_from = H1;
+            rook_to = F1;
+            // Move king back
+            board->pieces[E1] = board->pieces[G1];
+            board->pieces[G1].type = EMPTY;
+        } else if (move.from == E1 && move.to == C1) {
+            // White queenside
+            rook_from = A1;
+            rook_to = D1;
+            // Move king back
+            board->pieces[E1] = board->pieces[C1];
+            board->pieces[C1].type = EMPTY;
+        } else if (move.from == E8 && move.to == G8) {
+            // Black kingside
+            rook_from = H8;
+            rook_to = F8;
+            // Move king back
+            board->pieces[E8] = board->pieces[G8];
+            board->pieces[G8].type = EMPTY;
+        } else if (move.from == E8 && move.to == C8) {
+            // Black queenside
+            rook_from = A8;
+            rook_to = D8;
+            // Move king back
+            board->pieces[E8] = board->pieces[C8];
+            board->pieces[C8].type = EMPTY;
+        }
+
+        // Move rook back
+        board->pieces[rook_from] = board->pieces[rook_to];
+        board->pieces[rook_to].type = EMPTY;
+    } else {
+        // Handle non-castling moves
+
+        // Save moving piece before we overwrite it
+        Piece moving_piece = board->pieces[move.to];
+
+        // Handle promotion - change back to pawn
+        if (move.promotion != EMPTY) {
+            moving_piece.type = PAWN;
+        }
+
+        // Restore captured piece or clear destination
+        if (move.capture) {
+            if (move.en_passant) {
+                // For en passant, restore the captured pawn
+                int captured_square = move.captured_piece_square;
+                board->pieces[captured_square].type = PAWN;
+                board->pieces[captured_square].color = move.captured_piece_color;
+
+                // Clear the capturing pawn's destination
+                board->pieces[move.to].type = EMPTY;
+            } else {
+                // Normal capture - restore the captured piece
+                board->pieces[move.to].type = move.captured_piece_type;
+                board->pieces[move.to].color = move.captured_piece_color;
+            }
+        } else {
+            // No capture - clear the destination
+            board->pieces[move.to].type = EMPTY;
+        }
+
+        // Move piece back to source
+        board->pieces[move.from] = moving_piece;
+    }
+
+    // Restore preserved state
+    board->castle_rights = move.old_castle_rights;
+    board->en_passant_square = move.old_en_passant;
+    board->halfmove_clock = move.old_halfmove_clock;
+
+    // Update bitboards
+    update_bitboards(board);
 }

@@ -212,7 +212,7 @@ void perft_detail(Board *board, int depth) {
         Board copy = *board;
         char *move_str = move_to_string(list.moves[i]);
 
-        make_move(&copy, list.moves[i]);
+        make_move(&copy, &(list.moves[i]));
 
         uint64_t nodes = 1;
         if (depth > 1) {
@@ -223,7 +223,7 @@ void perft_detail(Board *board, int depth) {
             if (depth > 2) {
                 for (int j = 0; j < next_list.count; j++) {
                     Board next_copy = copy;
-                    make_move(&next_copy, next_list.moves[j]);
+                    make_move(&next_copy, &(next_list.moves[j]));
 
                     if (depth > 2) {
                         MoveList next_next_list;
@@ -253,7 +253,7 @@ uint64_t perft(Board *board, int depth) {
     uint64_t nodes = 0;
     for (int i = 0; i < list.count; i++) {
         Board copy = *board;
-        make_move(&copy, list.moves[i]);
+        make_move(&copy, &(list.moves[i]));
 
         // Validate board state after making the move
         // validate_board_state(&copy);
@@ -270,7 +270,8 @@ void test_perft(int max_depth) {
     setup_default_position(&board);
 
     printf("Move generation performance test (Perft)\n");
-    printf("Starting position: %s\n", board_to_fen(&board));
+    char fen[100];
+    printf("Starting position: %s\n", board_to_fen(&board, fen, sizeof(fen)) ? fen : "Error generating FEN");
 
     // Debug the board state
     debug_board(&board);

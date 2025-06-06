@@ -38,6 +38,7 @@ add_executable(TDChess
     eval.c
     search.c
     neural.c
+    python_binding.c
 )
 
 # Link with ONNX Runtime if available

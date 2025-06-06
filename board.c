@@ -27,14 +27,14 @@ void setup_default_position(Board *board) {
         init_board(board);
 
         // Place kings in their starting positions
-        board->pieces[SQUARE(FILE_E, RANK_1)].type = KING;
-        board->pieces[SQUARE(FILE_E, RANK_1)].color = WHITE;
-        board->pieces[SQUARE(FILE_E, RANK_8)].type = KING;
-        board->pieces[SQUARE(FILE_E, RANK_8)].color = BLACK;
+        board->pieces[SQUARE(SQUARE_FILE_E, SQUARE_RANK_1)].type = KING;
+        board->pieces[SQUARE(SQUARE_FILE_E, SQUARE_RANK_1)].color = WHITE;
+        board->pieces[SQUARE(SQUARE_FILE_E, SQUARE_RANK_8)].type = KING;
+        board->pieces[SQUARE(SQUARE_FILE_E, SQUARE_RANK_8)].color = BLACK;
 
         // Update bitboards
-        board->piece_bb[WHITE][KING] = square_to_bitboard(SQUARE(FILE_E, RANK_1));
-        board->piece_bb[BLACK][KING] = square_to_bitboard(SQUARE(FILE_E, RANK_8));
+        board->piece_bb[WHITE][KING] = square_to_bitboard(SQUARE(SQUARE_FILE_E, SQUARE_RANK_1));
+        board->piece_bb[BLACK][KING] = square_to_bitboard(SQUARE(SQUARE_FILE_E, SQUARE_RANK_8));
         board->occupied[WHITE] = board->piece_bb[WHITE][KING];
         board->occupied[BLACK] = board->piece_bb[BLACK][KING];
         board->all_pieces = board->occupied[WHITE] | board->occupied[BLACK];
@@ -257,100 +257,96 @@ bool parse_fen(Board *board, const char *fen) {
     return true;
 }
 
-// Convert board state to FEN string
-char *board_to_fen(const Board *board) {
-    static char fen[100];
-    char *ptr = fen;
+// Update the implementation
+bool board_to_fen(const Board *board, char *buffer, size_t buffer_size) {
+    if (!buffer || buffer_size < 90) {  // FEN strings can be quite long
+        return false;
+    }
+
+    // Implementation of FEN generation
+    int offset = 0;
 
     // 1. Piece placement
     for (int rank = 7; rank >= 0; rank--) {
-        int empty = 0;
+        int empty_count = 0;
 
         for (int file = 0; file < 8; file++) {
-            int square = SQUARE(file, rank);
+            int square = rank * 8 + file;
             Piece piece = board->pieces[square];
 
             if (piece.type == EMPTY) {
-                empty++;
+                empty_count++;
             } else {
-                if (empty > 0) {
-                    *ptr++ = '0' + empty;
-                    empty = 0;
+                // If there were empty squares before this piece, add the count
+                if (empty_count > 0) {
+                    offset += snprintf(buffer + offset, buffer_size - offset, "%d", empty_count);
+                    empty_count = 0;
                 }
 
-                char pc;
-                switch (piece.type) {
-                case PAWN:
-                    pc = 'p';
-                    break;
-                case KNIGHT:
-                    pc = 'n';
-                    break;
-                case BISHOP:
-                    pc = 'b';
-                    break;
-                case ROOK:
-                    pc = 'r';
-                    break;
-                case QUEEN:
-                    pc = 'q';
-                    break;
-                case KING:
-                    pc = 'k';
-                    break;
-                default:
-                    pc = '?';
-                    break;
-                }
-
-                if (piece.color == WHITE) pc = toupper(pc);
-                *ptr++ = pc;
+                // Add the piece character
+                char piece_char = get_piece_char(piece);
+                offset += snprintf(buffer + offset, buffer_size - offset, "%c", piece_char);
             }
         }
 
-        if (empty > 0) *ptr++ = '0' + empty;
+        // If there are empty squares at the end of the rank, add the count
+        if (empty_count > 0) {
+            offset += snprintf(buffer + offset, buffer_size - offset, "%d", empty_count);
+        }
 
-        if (rank > 0) *ptr++ = '/';
+        // Add rank separator (except for the last rank)
+        if (rank > 0) {
+            offset += snprintf(buffer + offset, buffer_size - offset, "/");
+        }
     }
 
-    // 2. Side to move
-    *ptr++ = ' ';
-    *ptr++ = (board->side_to_move == WHITE) ? 'w' : 'b';
+    // 2. Active color
+    offset += snprintf(buffer + offset, buffer_size - offset, " %c",
+                       board->side_to_move == WHITE ? 'w' : 'b');
 
-    // 3. Castling rights
-    *ptr++ = ' ';
-    bool has_castle = false;
+    // 3. Castling availability
+    offset += snprintf(buffer + offset, buffer_size - offset, " ");
+    bool has_castling = false;
+
     if (board->castle_rights & CASTLE_WHITE_KINGSIDE) {
-        *ptr++ = 'K';
-        has_castle = true;
+        offset += snprintf(buffer + offset, buffer_size - offset, "K");
+        has_castling = true;
     }
     if (board->castle_rights & CASTLE_WHITE_QUEENSIDE) {
-        *ptr++ = 'Q';
-        has_castle = true;
+        offset += snprintf(buffer + offset, buffer_size - offset, "Q");
+        has_castling = true;
     }
     if (board->castle_rights & CASTLE_BLACK_KINGSIDE) {
-        *ptr++ = 'k';
-        has_castle = true;
+        offset += snprintf(buffer + offset, buffer_size - offset, "k");
+        has_castling = true;
     }
     if (board->castle_rights & CASTLE_BLACK_QUEENSIDE) {
-        *ptr++ = 'q';
-        has_castle = true;
+        offset += snprintf(buffer + offset, buffer_size - offset, "q");
+        has_castling = true;
     }
-    if (!has_castle) *ptr++ = '-';
 
-    // 4. En passant square
-    *ptr++ = ' ';
+    if (!has_castling) {
+        offset += snprintf(buffer + offset, buffer_size - offset, "-");
+    }
+
+    // 4. En passant target square
+    offset += snprintf(buffer + offset, buffer_size - offset, " ");
     if (board->en_passant_square == -1) {
-        *ptr++ = '-';
+        offset += snprintf(buffer + offset, buffer_size - offset, "-");
     } else {
-        *ptr++ = FILE(board->en_passant_square) + 'a';
-        *ptr++ = RANK(board->en_passant_square) + '1';
+        int ep_file = board->en_passant_square % 8;
+        int ep_rank = board->en_passant_square / 8;
+        offset += snprintf(buffer + offset, buffer_size - offset, "%c%d",
+                           'a' + ep_file, ep_rank + 1);
     }
 
     // 5. Halfmove clock
-    sprintf(ptr, " %d %d", board->halfmove_clock, board->fullmove_number);
+    offset += snprintf(buffer + offset, buffer_size - offset, " %d", board->halfmove_clock);
 
-    return fen;
+    // 6. Fullmove number
+    offset += snprintf(buffer + offset, buffer_size - offset, " %d", board->fullmove_number);
+
+    return true;
 }
 
 // Print the chess board
@@ -413,8 +409,8 @@ void print_board(const Board *board) {
            (board->castle_rights & CASTLE_BLACK_QUEENSIDE) ? "q" : "");
 
     if (board->en_passant_square != -1) {
-        char ep_file = FILE(board->en_passant_square) + 'a';
-        char ep_rank = RANK(board->en_passant_square) + '1';
+        char ep_file = SQUARE_FILE(board->en_passant_square) + 'a';
+        char ep_rank = SQUARE_RANK(board->en_passant_square) + '1';
         printf("En passant: %c%c\n", ep_file, ep_rank);
     } else {
         printf("En passant: -\n");
@@ -470,8 +466,8 @@ int pop_lsb(Bitboard *bb) {
 
 // Determine if a square is attacked by a side
 bool is_square_attacked(const Board *board, int square, Color by_side) {
-    int from_file = FILE(square);
-    int from_rank = RANK(square);
+    int from_file = SQUARE_FILE(square);
+    int from_rank = SQUARE_RANK(square);
 
     // Pawn attacks
     if (by_side == WHITE) {
@@ -619,4 +615,16 @@ void validate_board_state(Board *board) {
 
     // Update all_pieces
     board->all_pieces = board->occupied[WHITE] | board->occupied[BLACK];
+}
+
+// Convert a piece to its character representation
+char get_piece_char(Piece piece) {
+    if (piece.type == EMPTY) {
+        return '.';
+    }
+
+    char piece_chars[] = "PNBRQK";
+    char c = piece_chars[piece.type - 1];
+
+    return (piece.color == WHITE) ? c : (char)(c + ('a' - 'A'));
 }

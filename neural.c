@@ -27,8 +27,8 @@ void board_to_planes(const Board *board, float *tensor_buffer, size_t buffer_siz
         Piece piece = board->pieces[sq];
         if (piece.type == EMPTY) continue;
 
-        int rank = RANK(sq);
-        int file = FILE(sq);
+        int rank = SQUARE_RANK(sq);
+        int file = SQUARE_FILE(sq);
         int plane_idx = -1;
 
         // Determine which plane this piece belongs to
@@ -95,8 +95,8 @@ void board_to_planes(const Board *board, float *tensor_buffer, size_t buffer_siz
 
     // Set en passant plane (plane 13)
     if (board->en_passant_square != -1) {
-        int ep_rank = RANK(board->en_passant_square);
-        int ep_file = FILE(board->en_passant_square);
+        int ep_rank = SQUARE_RANK(board->en_passant_square);
+        int ep_file = SQUARE_FILE(board->en_passant_square);
         int offset = 13 * BOARD_SIZE * BOARD_SIZE + ep_rank * BOARD_SIZE + ep_file;
         tensor_buffer[offset] = 1.0f;
     }

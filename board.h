@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 // Piece definitions
 typedef enum {
@@ -24,17 +25,6 @@ typedef struct {
     PieceType type;
     Color color;
 } Piece;
-
-// Move structure
-typedef struct {
-    int from;
-    int to;
-    PieceType promotion;
-    bool capture;
-    bool castling;
-    bool en_passant;
-    int captured_piece_square;  // For en passant
-} Move;
 
 // Bitboard definition
 typedef uint64_t Bitboard;
@@ -69,36 +59,58 @@ typedef struct {
 void init_board(Board *board);
 void setup_default_position(Board *board);
 bool parse_fen(Board *board, const char *fen);
-char *board_to_fen(const Board *board);
+bool board_to_fen(const Board *board, char *buffer, size_t buffer_size);
 
 // Board utility functions
 void print_board(const Board *board);
 Piece get_piece(const Board *board, int square);
 bool is_square_attacked(const Board *board, int square, Color by_side);
+char get_piece_char(Piece piece);
 
-// Square indexing macros
+// Square indices
+#define A1 0
+#define B1 1
+#define C1 2
+#define D1 3
+#define E1 4
+#define F1 5
+#define G1 6
+#define H1 7
+
+#define A8 56
+#define B8 57
+#define C8 58
+#define D8 59
+#define E8 60
+#define F8 61
+#define G8 62
+#define H8 63
+
+// File and rank constants (renamed to avoid conflicts)
+#define SQUARE_FILE_A 0
+#define SQUARE_FILE_B 1
+#define SQUARE_FILE_C 2
+#define SQUARE_FILE_D 3
+#define SQUARE_FILE_E 4
+#define SQUARE_FILE_F 5
+#define SQUARE_FILE_G 6
+#define SQUARE_FILE_H 7
+
+#define SQUARE_RANK_1 0
+#define SQUARE_RANK_2 1
+#define SQUARE_RANK_3 2
+#define SQUARE_RANK_4 3
+#define SQUARE_RANK_5 4
+#define SQUARE_RANK_6 5
+#define SQUARE_RANK_7 6
+#define SQUARE_RANK_8 7
+
+// Square macro to convert file and rank to square index
 #define SQUARE(file, rank) ((rank) * 8 + (file))
-#define RANK(square) ((square) / 8)
-#define FILE(square) ((square) % 8)
 
-// File and rank definitions
-#define FILE_A 0
-#define FILE_B 1
-#define FILE_C 2
-#define FILE_D 3
-#define FILE_E 4
-#define FILE_F 5
-#define FILE_G 6
-#define FILE_H 7
-
-#define RANK_1 0
-#define RANK_2 1
-#define RANK_3 2
-#define RANK_4 3
-#define RANK_5 4
-#define RANK_6 5
-#define RANK_7 6
-#define RANK_8 7
+// Macros to extract file and rank from square (renamed to avoid conflicts)
+#define SQUARE_FILE(sq) ((sq) & 7)
+#define SQUARE_RANK(sq) ((sq) >> 3)
 
 // Bitboard operations
 Bitboard square_to_bitboard(int square);

@@ -8,6 +8,7 @@
 #include "eval.h"
 #include "search.h"
 #include "neural.h"
+#include "python_binding.h"
 
 // Simple interactive mode to play against the engine
 void interactive_mode() {
@@ -58,7 +59,7 @@ void interactive_mode() {
         }
 
         if (valid_move) {
-            make_move(&board, move);
+            make_move(&board, &move);
         } else {
             printf("Invalid move! Try again.\n");
         }
@@ -77,8 +78,8 @@ void test_evaluation(void) {
     printf("Evaluation: %.2f\n", eval);
 
     // Make a move to test different positions
-    Move e4 = {SQUARE(FILE_E, RANK_2), SQUARE(FILE_E, RANK_4), EMPTY, false, false, false, -1};
-    make_move(&board, e4);
+    Move e4 = {SQUARE(SQUARE_FILE_E, SQUARE_RANK_2), SQUARE(SQUARE_FILE_E, SQUARE_RANK_4), EMPTY, false, false, false, -1};
+    make_move(&board, &e4);
 
     printf("\nAfter 1. e4:\n");
     print_board(&board);
@@ -162,7 +163,7 @@ void play_against_computer(int depth) {
                     if (board.pieces[from_sq].type == PAWN && to_rank == 7) {
                         moves.moves[i].promotion = QUEEN;  // Default to queen promotion
                     }
-                    make_move(&board, moves.moves[i]);
+                    make_move(&board, &(moves.moves[i]));
                     move_found = true;
                     break;
                 }
@@ -175,7 +176,7 @@ void play_against_computer(int depth) {
         } else {
             // Computer's move
             Move computer_move = get_computer_move(&board, depth);
-            make_move(&board, computer_move);
+            make_move(&board, &computer_move);
         }
     }
 }
@@ -265,6 +266,73 @@ void test_neural_evaluation(const char *model_path) {
     set_neural_evaluator(NULL);
 }
 
+// Generate a dataset of positions for neural network training
+void generate_training_dataset(const char *filename, int num_positions, int search_depth) {
+    printf("Generating training dataset with %d positions...\n", num_positions);
+
+    // Allocate memory for positions and evaluations
+    Board *positions = (Board *)malloc(num_positions * sizeof(Board));
+    float *evaluations = (float *)malloc(num_positions * sizeof(float));
+
+    if (!positions || !evaluations) {
+        printf("Failed to allocate memory for dataset\n");
+        if (positions) free(positions);
+        if (evaluations) free(evaluations);
+        return;
+    }
+
+    // Start with the default position
+    Board current_board;
+    setup_default_position(&current_board);
+
+    // Use alpha-beta search to play some moves and collect positions
+    int pos_count = 0;
+
+    // Collect first position
+    positions[pos_count] = current_board;
+    evaluations[pos_count] = evaluate_basic(&current_board);
+    pos_count++;
+
+    // Play moves and collect positions
+    uint64_t nodes = 0;
+    while (pos_count < num_positions) {
+        // Search for best move
+        Move best_move;
+        find_best_move(&current_board, search_depth, &best_move, &nodes);
+
+        // Make the move
+        make_move(&current_board, &best_move);
+
+        // Collect position
+        positions[pos_count] = current_board;
+        evaluations[pos_count] = evaluate_basic(&current_board);
+        pos_count++;
+
+        // Print progress
+        if (pos_count % 10 == 0) {
+            printf("Generated %d/%d positions\n", pos_count, num_positions);
+        }
+
+        // If game is over, start a new game
+        MoveList moves;
+        generate_legal_moves(&current_board, &moves);
+        if (moves.count == 0 || current_board.halfmove_clock >= 100) {
+            setup_default_position(&current_board);
+        }
+    }
+
+    // Export positions to dataset
+    if (!export_positions_to_dataset(filename, positions, evaluations, num_positions)) {
+        printf("Failed to export positions to dataset\n");
+    } else {
+        printf("Successfully exported %d positions to %s\n", num_positions, filename);
+    }
+
+    // Free memory
+    free(positions);
+    free(evaluations);
+}
+
 // Update the main function to handle the test-mode option
 int main(int argc, char **argv) {
     printf("TDChess - A chess engine\n\n");
@@ -298,6 +366,12 @@ int main(int argc, char **argv) {
             // Test neural evaluation
             const char *model_path = (argc > 2) ? argv[2] : "chess_model.onnx";
             test_neural_evaluation(model_path);
+        } else if (strcmp(argv[1], "generate-dataset") == 0) {
+            // Generate training dataset
+            const char *filename = (argc > 2) ? argv[2] : "chess_dataset.json";
+            int num_positions = (argc > 3) ? atoi(argv[3]) : 1000;
+            int search_depth = (argc > 4) ? atoi(argv[4]) : 3;
+            generate_training_dataset(filename, num_positions, search_depth);
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");
@@ -308,6 +382,7 @@ int main(int argc, char **argv) {
             printf("  play [depth]         - Play against computer\n");
             printf("  neural              - Test neural input representation\n");
             printf("  neural-eval [model]  - Test neural evaluation with ONNX model\n");
+            printf("  generate-dataset [file] [count] [depth] - Generate training dataset\n");
         }
     } else {
         // Default to interactive mode
