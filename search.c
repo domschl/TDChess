@@ -399,8 +399,10 @@ Move get_computer_move(Board *board, int depth) {
     return result.best_move;
 }
 
-// Add the implementation
-void find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) {
+// Update the find_best_move implementation to return the score
+
+// Modified implementation to return the best score
+float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) {
     // Reset node counter
     *nodes = 0;
 
@@ -412,15 +414,34 @@ void find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) {
     MoveList moves;
     generate_legal_moves(board, &moves);
 
-    // If no legal moves, return
+    // If no legal moves, return worst score
     if (moves.count == 0) {
-        return;
+        // Check if king is in check (checkmate) or not (stalemate)
+        int king_square = -1;
+        for (int sq = 0; sq < 64; sq++) {
+            if (board->pieces[sq].type == KING && board->pieces[sq].color == board->side_to_move) {
+                king_square = sq;
+                break;
+            }
+        }
+
+        if (king_square != -1 && is_square_attacked(board, king_square, !board->side_to_move)) {
+            return -1000.0f; // Checkmate
+        } else {
+            return 0.0f;     // Stalemate (draw)
+        }
     }
 
     // If only one legal move, return it immediately
     if (moves.count == 1) {
         *best_move = moves.moves[0];
-        return;
+        
+        // Make the move to get its score
+        make_move(board, best_move);
+        float score = -evaluate_position(board);
+        unmake_move(board, *best_move);
+        
+        return score;
     }
 
     // Score moves for initial ordering
@@ -442,7 +463,7 @@ void find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) {
         // Search from opponent's perspective
         float score = -alpha_beta(board, depth - 1, -beta, -alpha, nodes);
 
-        // Unmake the move - fixing the too few arguments error
+        // Unmake the move
         unmake_move(board, move);
 
         // Update best score and move if this move is better
@@ -457,10 +478,12 @@ void find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) {
         }
     }
 
-    // Ensure we've set a best move - fixing the pointer syntax
+    // Ensure we've set a best move
     if (best_move->from == 0 && best_move->to == 0) {
         *best_move = moves.moves[0];  // Fall back to first move
     }
+
+    return best_score;
 }
 
 // Add implementations of the missing functions

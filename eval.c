@@ -141,13 +141,6 @@ bool is_quiet_basic(const Board *board) {
     return true;
 }
 
-// Neural evaluation stub (to be implemented later)
-float evaluate_neural(const Board *board) {
-    // For now, just call basic evaluation
-    return evaluate_basic(board);
-}
-
-// Neural quiescence check stub
 bool is_quiet_neural(const Board *board) {
     // For now, just call basic quiescence check
     return is_quiet_basic(board);

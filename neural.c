@@ -5,522 +5,385 @@
 #include <stdlib.h>
 
 #if HAVE_ONNXRUNTIME
-#include <onnxruntime/onnxruntime_c_api.h>
+// Flag to track ONNX Runtime initialization
+static bool onnx_runtime_initialized = false;
+
+// Global singleton evaluator
+static NeuralEvaluator* global_evaluator = NULL;
+
+// Get the singleton neural evaluator
+NeuralEvaluator* get_neural_evaluator(void) {
+    return global_evaluator;
+}
 #endif
 
 // Convert a board position to a set of planes for neural network input
-void board_to_planes(const Board *board, float *tensor_buffer, size_t buffer_size) {
-    // Ensure buffer is large enough
-    size_t required_size = BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS * sizeof(float);
-    if (buffer_size < required_size) {
-        return;  // Buffer too small
+bool board_to_planes(const Board* board, float* tensor_buffer, size_t buffer_size) {
+    if (!board || !tensor_buffer || buffer_size < BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS * sizeof(float)) {
+        return false;
     }
-
-    // Clear the buffer
+    
+    // Clear buffer
     memset(tensor_buffer, 0, buffer_size);
-
-    // Create planes for each piece type and color
-    // Planes are ordered: [wP, wN, wB, wR, wQ, wK, bP, bN, bB, bR, bQ, bK, side_to_move, en_passant]
-
-    // Iterate through the board and set the appropriate values
+    
+    // Create tensor representation - 14 planes of 8x8
+    // Planes 0-5: White pieces (pawn, knight, bishop, rook, queen, king)
+    // Planes 6-11: Black pieces (pawn, knight, bishop, rook, queen, king)
+    // Plane 12: Side to move (1 for white, 0 for black)
+    // Plane 13: En passant square (1 at the square, 0 elsewhere)
+    
+    // Fill piece planes
     for (int sq = 0; sq < 64; sq++) {
         Piece piece = board->pieces[sq];
-        if (piece.type == EMPTY) continue;
-
-        int rank = SQUARE_RANK(sq);
-        int file = SQUARE_FILE(sq);
-        int plane_idx = -1;
-
-        // Determine which plane this piece belongs to
-        if (piece.color == WHITE) {
-            switch (piece.type) {
-            case PAWN:
-                plane_idx = 0;
-                break;
-            case KNIGHT:
-                plane_idx = 1;
-                break;
-            case BISHOP:
-                plane_idx = 2;
-                break;
-            case ROOK:
-                plane_idx = 3;
-                break;
-            case QUEEN:
-                plane_idx = 4;
-                break;
-            case KING:
-                plane_idx = 5;
-                break;
-            default:
-                break;
-            }
-        } else {
-            switch (piece.type) {
-            case PAWN:
-                plane_idx = 6;
-                break;
-            case KNIGHT:
-                plane_idx = 7;
-                break;
-            case BISHOP:
-                plane_idx = 8;
-                break;
-            case ROOK:
-                plane_idx = 9;
-                break;
-            case QUEEN:
-                plane_idx = 10;
-                break;
-            case KING:
-                plane_idx = 11;
-                break;
-            default:
-                break;
-            }
-        }
-
-        // Set the value in the appropriate plane
-        if (plane_idx >= 0) {
-            int offset = plane_idx * BOARD_SIZE * BOARD_SIZE + rank * BOARD_SIZE + file;
-            tensor_buffer[offset] = 1.0f;
+        if (piece.type != EMPTY) {
+            // Get the plane index
+            int plane_idx = (piece.color == WHITE) ? (piece.type - 1) : (piece.type - 1 + 6);
+            
+            // Set the corresponding position in the tensor
+            tensor_buffer[plane_idx * 64 + sq] = 1.0f;
         }
     }
-
-    // Set side to move plane (plane 12)
-    float side_value = (board->side_to_move == WHITE) ? 1.0f : 0.0f;
-    for (int i = 0; i < BOARD_SIZE * BOARD_SIZE; i++) {
-        tensor_buffer[12 * BOARD_SIZE * BOARD_SIZE + i] = side_value;
-    }
-
-    // Set en passant plane (plane 13)
-    if (board->en_passant_square != -1) {
-        int ep_rank = SQUARE_RANK(board->en_passant_square);
-        int ep_file = SQUARE_FILE(board->en_passant_square);
-        int offset = 13 * BOARD_SIZE * BOARD_SIZE + ep_rank * BOARD_SIZE + ep_file;
-        tensor_buffer[offset] = 1.0f;
-    }
-}
-
-// Print the neural input representation for debugging
-void print_tensor_representation(const Board *board) {
-    // Allocate memory for the tensor
-    size_t buffer_size = BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS * sizeof(float);
-    float *tensor = (float *)malloc(buffer_size);
-
-    if (!tensor) {
-        printf("Memory allocation failed\n");
-        return;
-    }
-
-    // Convert board to tensor format
-    board_to_planes(board, tensor, buffer_size);
-
-    // Print each plane for debugging
-    const char *plane_names[] = {
-        "White Pawns", "White Knights", "White Bishops", "White Rooks", "White Queens", "White King",
-        "Black Pawns", "Black Knights", "Black Bishops", "Black Rooks", "Black Queens", "Black King",
-        "Side to move", "En passant"};
-
-    printf("Neural network input tensor representation:\n");
-    for (int p = 0; p < INPUT_CHANNELS; p++) {
-        printf("\nPlane %d: %s\n", p, plane_names[p]);
-
-        for (int r = 7; r >= 0; r--) {  // Print in reverse order (8->1)
-            printf("%d  ", r + 1);      // Rank number
-            for (int f = 0; f < 8; f++) {
-                int offset = p * BOARD_SIZE * BOARD_SIZE + r * BOARD_SIZE + f;
-                printf("%.0f ", tensor[offset]);  // Print 0 or 1
-            }
-            printf("\n");
+    
+    // Fill side to move plane (plane 12)
+    if (board->side_to_move == WHITE) {
+        for (int sq = 0; sq < 64; sq++) {
+            tensor_buffer[12 * 64 + sq] = 1.0f;
         }
-
-        // Print file letters
-        printf("   a b c d e f g h\n");
     }
-
-    free(tensor);
-}
-
-// Neural evaluator structure
-struct NeuralEvaluator {
-    char *model_path;
-
-#if HAVE_ONNXRUNTIME
-    // ONNX Runtime components
-    const OrtApi *ort;
-    OrtEnv *env;
-    OrtSession *session;
-    OrtMemoryInfo *memory_info;
-    OrtAllocator *allocator;  // Default allocator (don't free this)
-
-    // Input/output information
-    size_t input_count;
-    size_t output_count;
-    char **input_names;
-    char **output_names;
-#endif
-};
-
-// Global neural evaluator instance
-static NeuralEvaluator *global_evaluator = NULL;
-
-// Check if neural network support is available
-bool is_neural_available(void) {
-#if HAVE_ONNXRUNTIME
+    
+    // Fill en passant plane (plane 13)
+    if (board->en_passant_square >= 0 && board->en_passant_square < 64) {
+        tensor_buffer[13 * 64 + board->en_passant_square] = 1.0f;
+    }
+    
     return true;
+}
+
+#if HAVE_ONNXRUNTIME
+// Initialize the ONNX runtime and load the model
+static bool create_neural_evaluator(const char* model_path) {
+    if (global_evaluator) {
+        printf("Neural evaluator already initialized\n");
+        return true; // Already initialized
+    }
+    
+    // Allocate evaluator
+    global_evaluator = (NeuralEvaluator*)malloc(sizeof(NeuralEvaluator));
+    if (!global_evaluator) {
+        printf("Failed to allocate memory for neural evaluator\n");
+        return false;
+    }
+    
+    // Initialize fields
+    memset(global_evaluator, 0, sizeof(NeuralEvaluator));
+    
+    // Get ONNX Runtime API - only do this once
+    if (!onnx_runtime_initialized) {
+        global_evaluator->ort = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+        if (!global_evaluator->ort) {
+            printf("Failed to get ONNX Runtime API\n");
+            free(global_evaluator);
+            global_evaluator = NULL;
+            return false;
+        }
+        onnx_runtime_initialized = true;
+    } else {
+        global_evaluator->ort = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+    }
+    
+    // Create environment
+    OrtStatus* status = global_evaluator->ort->CreateEnv(ORT_LOGGING_LEVEL_ERROR, "TDChess", &global_evaluator->env);
+    if (status != NULL) {
+        const char* error_message = global_evaluator->ort->GetErrorMessage(status);
+        printf("Failed to create ONNX Runtime environment: %s\n", error_message);
+        global_evaluator->ort->ReleaseStatus(status);
+        free(global_evaluator);
+        global_evaluator = NULL;
+        return false;
+    }
+    
+    // Create session options
+    OrtSessionOptions* session_options;
+    status = global_evaluator->ort->CreateSessionOptions(&session_options);
+    if (status != NULL) {
+        const char* error_message = global_evaluator->ort->GetErrorMessage(status);
+        printf("Failed to create session options: %s\n", error_message);
+        global_evaluator->ort->ReleaseStatus(status);
+        global_evaluator->ort->ReleaseEnv(global_evaluator->env);
+        free(global_evaluator);
+        global_evaluator = NULL;
+        return false;
+    }
+    
+    // Fix: Check return value from SetSessionLogVerbosityLevel
+    status = global_evaluator->ort->SetSessionLogVerbosityLevel(session_options, ORT_LOGGING_LEVEL_ERROR);
+    if (status != NULL) {
+        const char* error_message = global_evaluator->ort->GetErrorMessage(status);
+        printf("Failed to set session log verbosity level: %s\n", error_message);
+        global_evaluator->ort->ReleaseStatus(status);
+        global_evaluator->ort->ReleaseSessionOptions(session_options);
+        global_evaluator->ort->ReleaseEnv(global_evaluator->env);
+        free(global_evaluator);
+        global_evaluator = NULL;
+        return false;
+    }
+    
+    // Create session
+    status = global_evaluator->ort->CreateSession(
+        global_evaluator->env,
+        model_path,
+        session_options,
+        &global_evaluator->session
+    );
+    
+    // Release session options regardless of success
+    global_evaluator->ort->ReleaseSessionOptions(session_options);
+    
+    if (status != NULL) {
+        const char* error_message = global_evaluator->ort->GetErrorMessage(status);
+        printf("Failed to create session: %s\n", error_message);
+        global_evaluator->ort->ReleaseStatus(status);
+        global_evaluator->ort->ReleaseEnv(global_evaluator->env);
+        free(global_evaluator);
+        global_evaluator = NULL;
+        return false;
+    }
+    
+    // Create memory info
+    status = global_evaluator->ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &global_evaluator->memory_info);
+    if (status != NULL) {
+        const char* error_message = global_evaluator->ort->GetErrorMessage(status);
+        printf("Failed to create memory info: %s\n", error_message);
+        global_evaluator->ort->ReleaseStatus(status);
+        global_evaluator->ort->ReleaseSession(global_evaluator->session);
+        global_evaluator->ort->ReleaseEnv(global_evaluator->env);
+        free(global_evaluator);
+        global_evaluator = NULL;
+        return false;
+    }
+    
+    // Set input and output names
+    global_evaluator->input_names[0] = "input";
+    global_evaluator->output_names[0] = "output";
+    
+    // Get session information
+    size_t num_input_nodes;
+    status = global_evaluator->ort->SessionGetInputCount(global_evaluator->session, &num_input_nodes);
+    if (status != NULL) {
+        global_evaluator->ort->ReleaseStatus(status);
+    }
+    
+    size_t num_output_nodes;
+    status = global_evaluator->ort->SessionGetOutputCount(global_evaluator->session, &num_output_nodes);
+    if (status != NULL) {
+        global_evaluator->ort->ReleaseStatus(status);
+    }
+    
+    printf("Successfully loaded neural model from %s\n", model_path);
+    printf("  Inputs: %zu, Outputs: %zu\n", num_input_nodes, num_output_nodes);
+    
+    return true;
+}
+
+// Clean up neural evaluator
+static void destroy_neural_evaluator(void) {
+    if (!global_evaluator) {
+        return; // Already cleaned up
+    }
+    
+    // Release resources in reverse order of creation
+    if (global_evaluator->memory_info) {
+        global_evaluator->ort->ReleaseMemoryInfo(global_evaluator->memory_info);
+    }
+    
+    if (global_evaluator->session) {
+        global_evaluator->ort->ReleaseSession(global_evaluator->session);
+    }
+    
+    if (global_evaluator->env) {
+        global_evaluator->ort->ReleaseEnv(global_evaluator->env);
+    }
+    
+    // Free the evaluator structure
+    free(global_evaluator);
+    global_evaluator = NULL;
+}
+
+// Run inference using the neural evaluator
+static bool run_neural_inference(float* input_tensor, float* output) {
+    if (!global_evaluator || !global_evaluator->session) {
+        return false;
+    }
+    
+    // Create input tensor
+    OrtValue* input_tensor_ort = NULL;
+    size_t input_size = BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS;
+    int64_t input_shape[] = {1, INPUT_CHANNELS, BOARD_SIZE, BOARD_SIZE};
+    
+    OrtStatus* status = global_evaluator->ort->CreateTensorWithDataAsOrtValue(
+        global_evaluator->memory_info,
+        input_tensor,
+        input_size * sizeof(float),
+        input_shape,
+        4,
+        ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
+        &input_tensor_ort
+    );
+    
+    if (status != NULL) {
+        const char* error_message = global_evaluator->ort->GetErrorMessage(status);
+        printf("Failed to create input tensor: %s\n", error_message);
+        global_evaluator->ort->ReleaseStatus(status);
+        return false;
+    }
+    
+    // Create output tensor
+    OrtValue* output_tensor_ort = NULL;
+    
+    // Fix: Use proper const qualifiers for Run function
+    const OrtValue* const_input_tensor_ort = input_tensor_ort;
+    
+    // Run inference
+    status = global_evaluator->ort->Run(
+        global_evaluator->session,
+        NULL, // No run options
+        global_evaluator->input_names,
+        &const_input_tensor_ort,  // Use const-qualified pointer
+        1, // Number of inputs
+        global_evaluator->output_names,
+        1, // Number of outputs
+        &output_tensor_ort
+    );
+    
+    if (status != NULL) {
+        const char* error_message = global_evaluator->ort->GetErrorMessage(status);
+        printf("Failed to run inference: %s\n", error_message);
+        global_evaluator->ort->ReleaseStatus(status);
+        global_evaluator->ort->ReleaseValue(input_tensor_ort);
+        return false;
+    }
+    
+    // Get output data
+    float* output_data;
+    status = global_evaluator->ort->GetTensorMutableData(output_tensor_ort, (void**)&output_data);
+    if (status != NULL) {
+        const char* error_message = global_evaluator->ort->GetErrorMessage(status);
+        printf("Failed to get output data: %s\n", error_message);
+        global_evaluator->ort->ReleaseStatus(status);
+        global_evaluator->ort->ReleaseValue(input_tensor_ort);
+        global_evaluator->ort->ReleaseValue(output_tensor_ort);
+        return false;
+    }
+    
+    // Copy output value
+    *output = output_data[0];
+    
+    // Clean up
+    global_evaluator->ort->ReleaseValue(input_tensor_ort);
+    global_evaluator->ort->ReleaseValue(output_tensor_ort);
+    
+    return true;
+}
+#endif
+
+// Initialize neural network subsystem
+bool initialize_neural(const char* model_path) {
+#if HAVE_ONNXRUNTIME
+    return create_neural_evaluator(model_path);
 #else
+    (void)model_path; // Avoid unused parameter warning
+    printf("ONNX Runtime support not available\n");
     return false;
 #endif
 }
 
-// Load a neural evaluator from an ONNX model file
-NeuralEvaluator *load_neural_evaluator(const char *model_path) {
+// Shutdown neural network subsystem
+void shutdown_neural(void) {
 #if HAVE_ONNXRUNTIME
-    NeuralEvaluator *evaluator = (NeuralEvaluator *)malloc(sizeof(NeuralEvaluator));
-    if (!evaluator) {
-        printf("Failed to allocate memory for neural evaluator\n");
-        return NULL;
-    }
-
-    // Initialize with zeros
-    memset(evaluator, 0, sizeof(NeuralEvaluator));
-
-    // Copy model path
-    evaluator->model_path = strdup(model_path);
-    if (!evaluator->model_path) {
-        printf("Failed to allocate memory for model path\n");
-        free(evaluator);
-        return NULL;
-    }
-
-    // Get OrtApi
-    evaluator->ort = OrtGetApiBase()->GetApi(ORT_API_VERSION);
-    if (!evaluator->ort) {
-        printf("Failed to get ONNX Runtime API\n");
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    // Create environment
-    OrtStatus *status = evaluator->ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "TDChess", &evaluator->env);
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to create ONNX Runtime environment: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    // Get default allocator
-    status = evaluator->ort->GetAllocatorWithDefaultOptions(&evaluator->allocator);
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to get default allocator: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        evaluator->ort->ReleaseEnv(evaluator->env);
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    // Create session options
-    OrtSessionOptions *session_options;
-    status = evaluator->ort->CreateSessionOptions(&session_options);
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to create session options: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        evaluator->ort->ReleaseEnv(evaluator->env);
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    // Set graph optimization level
-    status = evaluator->ort->SetSessionGraphOptimizationLevel(session_options, ORT_ENABLE_BASIC);
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Warning: Failed to set graph optimization level: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        // Continue anyway as this is not critical
-    }
-
-    // Create session
-    status = evaluator->ort->CreateSession(evaluator->env, model_path, session_options, &evaluator->session);
-    evaluator->ort->ReleaseSessionOptions(session_options);
-
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to create session: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        evaluator->ort->ReleaseEnv(evaluator->env);
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    // Create memory info
-    status = evaluator->ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &evaluator->memory_info);
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to create memory info: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        evaluator->ort->ReleaseSession(evaluator->session);
-        evaluator->ort->ReleaseEnv(evaluator->env);
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    // Get input and output count
-    status = evaluator->ort->SessionGetInputCount(evaluator->session, &evaluator->input_count);
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to get input count: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        evaluator->ort->ReleaseMemoryInfo(evaluator->memory_info);
-        evaluator->ort->ReleaseSession(evaluator->session);
-        evaluator->ort->ReleaseEnv(evaluator->env);
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    status = evaluator->ort->SessionGetOutputCount(evaluator->session, &evaluator->output_count);
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to get output count: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        evaluator->ort->ReleaseMemoryInfo(evaluator->memory_info);
-        evaluator->ort->ReleaseSession(evaluator->session);
-        evaluator->ort->ReleaseEnv(evaluator->env);
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    // Allocate memory for input and output names
-    evaluator->input_names = (char **)malloc(sizeof(char *) * evaluator->input_count);
-    evaluator->output_names = (char **)malloc(sizeof(char *) * evaluator->output_count);
-
-    if (!evaluator->input_names || !evaluator->output_names) {
-        printf("Failed to allocate memory for input/output names\n");
-        if (evaluator->input_names) free(evaluator->input_names);
-        if (evaluator->output_names) free(evaluator->output_names);
-        evaluator->ort->ReleaseMemoryInfo(evaluator->memory_info);
-        evaluator->ort->ReleaseSession(evaluator->session);
-        evaluator->ort->ReleaseEnv(evaluator->env);
-        free(evaluator->model_path);
-        free(evaluator);
-        return NULL;
-    }
-
-    // Get input and output names
-    for (size_t i = 0; i < evaluator->input_count; i++) {
-        char *input_name;
-        status = evaluator->ort->SessionGetInputName(evaluator->session, i, evaluator->allocator, &input_name);
-        if (status != NULL) {
-            const char *error_message = evaluator->ort->GetErrorMessage(status);
-            printf("Failed to get input name: %s\n", error_message);
-            evaluator->ort->ReleaseStatus(status);
-            // Clean up
-            for (size_t j = 0; j < i; j++) {
-                OrtStatus *free_status = evaluator->ort->AllocatorFree(evaluator->allocator, evaluator->input_names[j]);
-                if (free_status != NULL) {
-                    evaluator->ort->ReleaseStatus(free_status);
-                }
-            }
-            free(evaluator->input_names);
-            free(evaluator->output_names);
-            evaluator->ort->ReleaseMemoryInfo(evaluator->memory_info);
-            evaluator->ort->ReleaseSession(evaluator->session);
-            evaluator->ort->ReleaseEnv(evaluator->env);
-            free(evaluator->model_path);
-            free(evaluator);
-            return NULL;
-        }
-        evaluator->input_names[i] = input_name;
-    }
-
-    for (size_t i = 0; i < evaluator->output_count; i++) {
-        char *output_name;
-        status = evaluator->ort->SessionGetOutputName(evaluator->session, i, evaluator->allocator, &output_name);
-        if (status != NULL) {
-            const char *error_message = evaluator->ort->GetErrorMessage(status);
-            printf("Failed to get output name: %s\n", error_message);
-            evaluator->ort->ReleaseStatus(status);
-            // Clean up
-            for (size_t j = 0; j < evaluator->input_count; j++) {
-                OrtStatus *free_status = evaluator->ort->AllocatorFree(evaluator->allocator, evaluator->input_names[j]);
-                if (free_status != NULL) {
-                    evaluator->ort->ReleaseStatus(free_status);
-                }
-            }
-            for (size_t j = 0; j < i; j++) {
-                OrtStatus *free_status = evaluator->ort->AllocatorFree(evaluator->allocator, evaluator->output_names[j]);
-                if (free_status != NULL) {
-                    evaluator->ort->ReleaseStatus(free_status);
-                }
-            }
-            free(evaluator->input_names);
-            free(evaluator->output_names);
-            evaluator->ort->ReleaseMemoryInfo(evaluator->memory_info);
-            evaluator->ort->ReleaseSession(evaluator->session);
-            evaluator->ort->ReleaseEnv(evaluator->env);
-            free(evaluator->model_path);
-            free(evaluator);
-            return NULL;
-        }
-        evaluator->output_names[i] = output_name;
-    }
-
-    printf("Successfully loaded neural model from %s\n", model_path);
-    printf("  Inputs: %zu, Outputs: %zu\n", evaluator->input_count, evaluator->output_count);
-
-    return evaluator;
-#else
-    printf("Neural network support is not available (ONNX Runtime not found)\n");
-    return NULL;
+    destroy_neural_evaluator();
+    onnx_runtime_initialized = false;  // Reset initialization flag
 #endif
 }
 
-// Free a neural evaluator
-void free_neural_evaluator(NeuralEvaluator *evaluator) {
-    if (!evaluator) return;
-
+// Evaluate a position using the neural network
+float evaluate_neural(const Board* board) {
 #if HAVE_ONNXRUNTIME
-    if (evaluator->input_names) {
-        for (size_t i = 0; i < evaluator->input_count; i++) {
-            OrtStatus *status = evaluator->ort->AllocatorFree(evaluator->allocator, evaluator->input_names[i]);
-            if (status != NULL) {
-                evaluator->ort->ReleaseStatus(status);
-            }
-        }
-        free(evaluator->input_names);
+    if (!global_evaluator || !global_evaluator->session) {
+        return evaluate_position(board); // Fall back to basic evaluation
     }
-
-    if (evaluator->output_names) {
-        for (size_t i = 0; i < evaluator->output_count; i++) {
-            OrtStatus *status = evaluator->ort->AllocatorFree(evaluator->allocator, evaluator->output_names[i]);
-            if (status != NULL) {
-                evaluator->ort->ReleaseStatus(status);
-            }
-        }
-        free(evaluator->output_names);
-    }
-
-    if (evaluator->memory_info) {
-        evaluator->ort->ReleaseMemoryInfo(evaluator->memory_info);
-    }
-
-    if (evaluator->session) {
-        evaluator->ort->ReleaseSession(evaluator->session);
-    }
-
-    if (evaluator->env) {
-        evaluator->ort->ReleaseEnv(evaluator->env);
-    }
-
-    // Note: We don't free allocator as it's a default allocator provided by ONNX Runtime
-    // According to the documentation: "Returned value should NOT be freed"
-#endif
-
-    free(evaluator->model_path);
-    free(evaluator);
-}
-
-// Evaluate a position using the neural evaluator
-float neural_evaluate_position(NeuralEvaluator *evaluator, const Board *board) {
-#if HAVE_ONNXRUNTIME
-    if (!evaluator || !evaluator->session) {
-        return evaluate_position(board);
-    }
-
+    
     // Prepare input tensor
-    size_t tensor_size = BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS;
-    float *input_tensor = (float *)malloc(tensor_size * sizeof(float));
-    if (!input_tensor) {
-        printf("Failed to allocate memory for input tensor\n");
+    float input_tensor[BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS];
+    if (!board_to_planes(board, input_tensor, sizeof(input_tensor))) {
         return evaluate_position(board);
     }
-
-    // Convert board to tensor
-    board_to_planes(board, input_tensor, tensor_size * sizeof(float));
-
-    // Create input tensor
-    int64_t input_shape[4] = {1, INPUT_CHANNELS, BOARD_SIZE, BOARD_SIZE};
-    OrtValue *input_tensor_ort = NULL;
-    OrtStatus *status = evaluator->ort->CreateTensorWithDataAsOrtValue(
-        evaluator->memory_info, input_tensor, tensor_size * sizeof(float),
-        input_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor_ort);
-
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to create input tensor: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        free(input_tensor);
-        return evaluate_position(board);
+    
+    // Run neural evaluation
+    float output = 0.0f;
+    if (run_neural_inference(input_tensor, &output)) {
+        // Scale the output back to centipawns
+        output = output * 100.0f;
+        
+        // Negate the output if it's black's turn (evaluation is from white's perspective)
+        if (board->side_to_move == BLACK) {
+            output = -output;
+        }
+        
+        return output;
     }
-
-    // Create output tensor
-    OrtValue *output_tensor = NULL;
-
-    // Prepare input values array for Run
-    const OrtValue *input_values[1] = {input_tensor_ort};
-
-    // Run inference
-    status = evaluator->ort->Run(
-        evaluator->session, NULL,
-        (const char *const *)evaluator->input_names, input_values, 1,
-        (const char *const *)evaluator->output_names, 1, &output_tensor);
-
-    // Clean up input tensor
-    evaluator->ort->ReleaseValue(input_tensor_ort);
-    free(input_tensor);
-
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to run inference: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        return evaluate_position(board);
-    }
-
-    // Get output data
-    float *output_data;
-    status = evaluator->ort->GetTensorMutableData(output_tensor, (void **)&output_data);
-    if (status != NULL) {
-        const char *error_message = evaluator->ort->GetErrorMessage(status);
-        printf("Failed to get output data: %s\n", error_message);
-        evaluator->ort->ReleaseStatus(status);
-        evaluator->ort->ReleaseValue(output_tensor);
-        return evaluate_position(board);
-    }
-
-    // Get the evaluation score
-    float score = output_data[0];
-
-    // Clean up
-    evaluator->ort->ReleaseValue(output_tensor);
-
-    return score;
+    
+    // Fall back to basic evaluation if neural inference fails
+    return evaluate_position(board);
 #else
-    // Neural evaluation not available, fall back to basic evaluation
+    // Fall back to basic evaluation if ONNX Runtime is not available
     return evaluate_position(board);
 #endif
 }
 
-// Set the global neural evaluator
-void set_neural_evaluator(NeuralEvaluator *evaluator) {
-    if (global_evaluator) {
-        free_neural_evaluator(global_evaluator);
-    }
-    global_evaluator = evaluator;
+// Test the neural evaluation
+void test_neural_evaluation(const Board* board) {
+    printf("Neural evaluation: %.3f\n", evaluate_neural(board));
+    printf("Classical evaluation: %.3f\n", evaluate_position(board));
 }
 
-// Get the global neural evaluator
-NeuralEvaluator *get_neural_evaluator(void) {
-    return global_evaluator;
+// Print the neural input representation for debugging
+void test_neural_input(void) {
+    Board board;
+    setup_default_position(&board);
+    
+    float tensor[BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS];
+    board_to_planes(&board, tensor, sizeof(tensor));
+    
+    printf("Neural input tensor for starting position:\n");
+    
+    for (int plane = 0; plane < INPUT_CHANNELS; plane++) {
+        const char* plane_name;
+        switch (plane) {
+            case 0: plane_name = "White Pawns"; break;
+            case 1: plane_name = "White Knights"; break;
+            case 2: plane_name = "White Bishops"; break;
+            case 3: plane_name = "White Rooks"; break;
+            case 4: plane_name = "White Queens"; break;
+            case 5: plane_name = "White King"; break;
+            case 6: plane_name = "Black Pawns"; break;
+            case 7: plane_name = "Black Knights"; break;
+            case 8: plane_name = "Black Bishops"; break;
+            case 9: plane_name = "Black Rooks"; break;
+            case 10: plane_name = "Black Queens"; break;
+            case 11: plane_name = "Black King"; break;
+            case 12: plane_name = "Side to Move"; break;
+            case 13: plane_name = "En Passant"; break;
+            default: plane_name = "Unknown"; break;
+        }
+        
+        printf("Plane %d (%s):\n", plane, plane_name);
+        for (int rank = 7; rank >= 0; rank--) {
+            for (int file = 0; file < 8; file++) {
+                int sq = rank * 8 + file;
+                printf("%.0f ", tensor[plane * 64 + sq]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
 }

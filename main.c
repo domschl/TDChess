@@ -10,6 +10,86 @@
 #include "neural.h"
 #include "python_binding.h"
 
+// Add this function declaration at the top of the file with other function declarations
+
+// Function to generate training dataset for neural network
+void generate_training_dataset(const char *filename, int num_positions, int search_depth);
+
+// Add this implementation somewhere in the file, before it's called
+
+/**
+ * Generate a training dataset for neural network training
+ *
+ * @param filename The name of the file to save the dataset to
+ * @param num_positions The number of positions to generate
+ * @param search_depth The search depth to use for move selection
+ */
+void generate_training_dataset(const char *filename, int num_positions, int search_depth) {
+    printf("Generating training dataset with %d positions...\n", num_positions);
+
+    // Allocate memory for positions and evaluations
+    Board *positions = (Board *)malloc(num_positions * sizeof(Board));
+    float *evaluations = (float *)malloc(num_positions * sizeof(float));
+
+    if (!positions || !evaluations) {
+        printf("Failed to allocate memory for dataset\n");
+        if (positions) free(positions);
+        if (evaluations) free(evaluations);
+        return;
+    }
+
+    // Start with the default position
+    Board current_board;
+    setup_default_position(&current_board);
+
+    // Use alpha-beta search to play some moves and collect positions
+    int pos_count = 0;
+
+    // Collect first position
+    memcpy(&positions[pos_count], &current_board, sizeof(Board));
+    evaluations[pos_count] = evaluate_position(&current_board);
+    pos_count++;
+
+    // Play moves and collect positions
+    uint64_t nodes = 0;
+    while (pos_count < num_positions) {
+        // Search for best move
+        Move best_move;
+        float score = find_best_move(&current_board, search_depth, &best_move, &nodes);
+
+        // Make the move
+        make_move(&current_board, &best_move);
+
+        // Collect position
+        memcpy(&positions[pos_count], &current_board, sizeof(Board));
+        evaluations[pos_count] = -score;  // Negate the score because we switched sides
+        pos_count++;
+
+        // Print progress
+        if (pos_count % 10 == 0) {
+            printf("Generated %d/%d positions\n", pos_count, num_positions);
+        }
+
+        // If game is over, start a new game
+        MoveList moves;
+        generate_legal_moves(&current_board, &moves);
+        if (moves.count == 0 || current_board.halfmove_clock >= 100) {
+            setup_default_position(&current_board);
+        }
+    }
+
+    // Export positions to dataset
+    if (!export_positions_to_dataset(filename, positions, evaluations, num_positions)) {
+        printf("Failed to export positions to dataset\n");
+    } else {
+        printf("Successfully exported %d positions to %s\n", num_positions, filename);
+    }
+
+    // Free memory
+    free(positions);
+    free(evaluations);
+}
+
 // Simple interactive mode to play against the engine
 void interactive_mode() {
     Board board;
@@ -194,156 +274,128 @@ void play_against_computer(int depth) {
     }
 }
 
-// Test the neural input representation
-void test_neural_input(void) {
-    Board board;
-    setup_default_position(&board);
+/**
+ * Play against the computer using neural network evaluation
+ *
+ * @param model_path Path to the neural model file
+ * @param depth Search depth for the computer
+ */
+void play_with_neural(const char *model_path, int depth) {
+    printf("Playing with neural network evaluation (depth: %d)\n", depth);
+    printf("Loading neural model: %s\n", model_path);
 
-    printf("Testing neural input representation for starting position:\n");
-    print_board(&board);
-    print_tensor_representation(&board);
-
-    // Test with a more complex position
-    if (!parse_fen(&board, "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3")) {
-        printf("Failed to parse FEN\n");
+    // Initialize the neural network
+    if (!initialize_neural(model_path)) {
+        printf("Failed to initialize neural model from %s\n", model_path);
         return;
     }
 
-    printf("\nTesting neural input representation for position after 1.e4 e5 2.Nf3 Nc6:\n");
-    print_board(&board);
-    print_tensor_representation(&board);
+    // Ensure neural model is unloaded when function exits
+    atexit(shutdown_neural);
+
+    // Store original evaluation type
+    EvaluationType original_type = get_evaluation_type();
+
+    // Switch to neural evaluation mode
+    set_evaluation_type(EVAL_NEURAL);
+
+    // Use the existing play function
+    play_against_computer(depth);
+
+    // Reset to original evaluation type
+    set_evaluation_type(original_type);
 }
 
-// Add a function to test neural evaluation
+// Test the neural input representation
+void cmd_neural_input(void) {
+    printf("Testing neural input representation:\n");
+    test_neural_input();  // Call the function defined in neural.h
+}
 
-void test_neural_evaluation(const char *model_path) {
-    if (!is_neural_available()) {
-        printf("Neural network support is not available\n");
+// Replace the conflicting test_neural_evaluation function with a wrapper
+// that uses the correct implementation from neural.h
+void cmd_test_neural_model(const char *model_path) {
+    // Initialize neural evaluator
+    if (!initialize_neural(model_path)) {
+        printf("Failed to initialize neural evaluator with model: %s\n", model_path);
         return;
     }
 
-    // Load the neural evaluator
-    NeuralEvaluator *evaluator = load_neural_evaluator(model_path);
-    if (!evaluator) {
-        printf("Failed to load neural model from %s\n", model_path);
-        return;
-    }
+    // Make sure to clean up when done
+    atexit(shutdown_neural);
 
-    // Set as the global evaluator
-    set_neural_evaluator(evaluator);
-
-    // Create a board with the starting position
+    // Test positions
     Board board;
-    setup_default_position(&board);
 
-    // Print the board
+    // Position 1: Starting position
+    setup_default_position(&board);
     printf("Evaluating starting position:\n");
     print_board(&board);
+    test_neural_evaluation(&board);  // Use the function from neural.h
+    printf("\n");
 
-    // Evaluate using the neural network
-    float score = neural_evaluate_position(evaluator, &board);
-    printf("Neural evaluation: %.3f\n", score);
+    // Position 2: After 1.e4
+    setup_default_position(&board);
+    Move e4 = {
+        .from = SQUARE(SQUARE_FILE_E, SQUARE_RANK_2),
+        .to = SQUARE(SQUARE_FILE_E, SQUARE_RANK_4),
+        .promotion = EMPTY,
+        .capture = false,
+        .castling = false,
+        .en_passant = false,
+        .captured_piece_square = -1,
+        .captured_piece_type = EMPTY,
+        .captured_piece_color = WHITE,
+        .old_castle_rights = 0,
+        .old_en_passant = -1,
+        .old_halfmove_clock = 0};
+    make_move(&board, &e4);
+    printf("Evaluating position 1:\n");
+    print_board(&board);
+    test_neural_evaluation(&board);
+    printf("\n");
 
-    // Compare with classical evaluation
-    float classic_score = evaluate_basic(&board);
-    printf("Classical evaluation: %.3f\n", classic_score);
+    // Position 3: After 1.e4 e5
+    Move e5 = {
+        .from = SQUARE(SQUARE_FILE_E, SQUARE_RANK_7),
+        .to = SQUARE(SQUARE_FILE_E, SQUARE_RANK_5),
+        .promotion = EMPTY,
+        .capture = false,
+        .castling = false,
+        .en_passant = false,
+        .captured_piece_square = -1,
+        .captured_piece_type = EMPTY,
+        .captured_piece_color = BLACK,
+        .old_castle_rights = 0,
+        .old_en_passant = -1,
+        .old_halfmove_clock = 0};
+    make_move(&board, &e5);
+    printf("Evaluating position 2:\n");
+    print_board(&board);
+    test_neural_evaluation(&board);
+    printf("\n");
 
-    // Try a few common opening positions
-    const char *test_positions[] = {
-        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",    // After 1.e4
-        "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",  // After 1.e4 e5
-        "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"  // After 1.e4 e5 2.Nf3
-    };
+    // Position 4: After 2.Nf3
+    Move nf3 = {
+        .from = SQUARE(SQUARE_FILE_G, SQUARE_RANK_1),
+        .to = SQUARE(SQUARE_FILE_F, SQUARE_RANK_3),
+        .promotion = EMPTY,
+        .capture = false,
+        .castling = false,
+        .en_passant = false,
+        .captured_piece_square = -1,
+        .captured_piece_type = EMPTY,
+        .captured_piece_color = WHITE,
+        .old_castle_rights = 0,
+        .old_en_passant = -1,
+        .old_halfmove_clock = 0};
+    make_move(&board, &nf3);
+    printf("Evaluating position 3:\n");
+    print_board(&board);
+    test_neural_evaluation(&board);
+    printf("\n");
 
-    for (int i = 0; i < 3; i++) {
-        printf("\nEvaluating position %d:\n", i + 1);
-
-        if (!parse_fen(&board, test_positions[i])) {
-            printf("Failed to parse FEN: %s\n", test_positions[i]);
-            continue;
-        }
-
-        print_board(&board);
-
-        // Evaluate using the neural network
-        float score = neural_evaluate_position(evaluator, &board);
-        printf("Neural evaluation: %.3f\n", score);
-
-        // Compare with classical evaluation
-        float classic_score = evaluate_basic(&board);
-        printf("Classical evaluation: %.3f\n", classic_score);
-    }
-
-    // Clean up
-    free_neural_evaluator(evaluator);
-    set_neural_evaluator(NULL);
-}
-
-// Generate a dataset of positions for neural network training
-void generate_training_dataset(const char *filename, int num_positions, int search_depth) {
-    printf("Generating training dataset with %d positions...\n", num_positions);
-
-    // Allocate memory for positions and evaluations
-    Board *positions = (Board *)malloc(num_positions * sizeof(Board));
-    float *evaluations = (float *)malloc(num_positions * sizeof(float));
-
-    if (!positions || !evaluations) {
-        printf("Failed to allocate memory for dataset\n");
-        if (positions) free(positions);
-        if (evaluations) free(evaluations);
-        return;
-    }
-
-    // Start with the default position
-    Board current_board;
-    setup_default_position(&current_board);
-
-    // Use alpha-beta search to play some moves and collect positions
-    int pos_count = 0;
-
-    // Collect first position (using memcpy for safer copying)
-    memcpy(&positions[pos_count], &current_board, sizeof(Board));
-    evaluations[pos_count] = evaluate_position(&current_board);
-    pos_count++;
-
-    // Play moves and collect positions
-    uint64_t nodes = 0;
-    while (pos_count < num_positions) {
-        // Search for best move
-        Move best_move;
-        find_best_move(&current_board, search_depth, &best_move, &nodes);
-
-        // Make the move - using correct signature based on your implementation
-        make_move(&current_board, &best_move);  // Adjust if your function takes a pointer
-
-        // Collect position (using memcpy for safer copying)
-        memcpy(&positions[pos_count], &current_board, sizeof(Board));
-        evaluations[pos_count] = evaluate_position(&current_board);
-        pos_count++;
-
-        // Print progress
-        if (pos_count % 10 == 0) {
-            printf("Generated %d/%d positions\n", pos_count, num_positions);
-        }
-
-        // If game is over, start a new game
-        MoveList moves;
-        generate_legal_moves(&current_board, &moves);
-        if (moves.count == 0 || current_board.halfmove_clock >= 100) {
-            setup_default_position(&current_board);
-        }
-    }
-
-    // Export positions to dataset
-    if (!export_positions_to_dataset(filename, positions, evaluations, num_positions)) {
-        printf("Failed to export positions to dataset\n");
-    } else {
-        printf("Successfully exported %d positions to %s\n", num_positions, filename);
-    }
-
-    // Free memory
-    free(positions);
-    free(evaluations);
+    // Explicit cleanup is not needed due to atexit() registration
 }
 
 // Update the main function to handle the test-mode option
@@ -374,17 +426,22 @@ int main(int argc, char **argv) {
             play_against_computer(depth);
         } else if (strcmp(argv[1], "neural") == 0) {
             // Test neural input representation
-            test_neural_input();
+            cmd_neural_input();
         } else if (strcmp(argv[1], "neural-eval") == 0) {
             // Test neural evaluation
             const char *model_path = (argc > 2) ? argv[2] : "chess_model.onnx";
-            test_neural_evaluation(model_path);
+            cmd_test_neural_model(model_path);
         } else if (strcmp(argv[1], "generate-dataset") == 0) {
             // Generate training dataset
             const char *filename = (argc > 2) ? argv[2] : "chess_dataset.json";
             int num_positions = (argc > 3) ? atoi(argv[3]) : 1000;
             int search_depth = (argc > 4) ? atoi(argv[4]) : 3;
             generate_training_dataset(filename, num_positions, search_depth);
+        } else if (strcmp(argv[1], "play-neural") == 0) {
+            // Play against computer with neural evaluation
+            int depth = (argc > 2) ? atoi(argv[2]) : 3;
+            const char *model_path = (argc > 3) ? argv[3] : "chess_model.onnx";
+            play_with_neural(model_path, depth);
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");
@@ -396,6 +453,7 @@ int main(int argc, char **argv) {
             printf("  neural              - Test neural input representation\n");
             printf("  neural-eval [model]  - Test neural evaluation with ONNX model\n");
             printf("  generate-dataset [file] [count] [depth] - Generate training dataset\n");
+            printf("  play-neural [depth] [model] - Play against computer with neural evaluation\n");
         }
     } else {
         // Default to interactive mode

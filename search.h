@@ -22,8 +22,9 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
 // Function to make a computer move
 Move get_computer_move(Board *board, int depth);
 
-// Add the declaration for find_best_move
-void find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes);
+// Update the find_best_move declaration to return float instead of void
+// Function to find the best move with a given depth
+float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes);
 
 // Add these function declarations
 void score_moves(Board *board, MoveList *moves);
