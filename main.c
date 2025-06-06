@@ -184,20 +184,85 @@ void play_against_computer(int depth) {
 void test_neural_input(void) {
     Board board;
     setup_default_position(&board);
-    
+
     printf("Testing neural input representation for starting position:\n");
     print_board(&board);
     print_tensor_representation(&board);
-    
+
     // Test with a more complex position
     if (!parse_fen(&board, "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3")) {
         printf("Failed to parse FEN\n");
         return;
     }
-    
+
     printf("\nTesting neural input representation for position after 1.e4 e5 2.Nf3 Nc6:\n");
     print_board(&board);
     print_tensor_representation(&board);
+}
+
+// Add a function to test neural evaluation
+
+void test_neural_evaluation(const char *model_path) {
+    if (!is_neural_available()) {
+        printf("Neural network support is not available\n");
+        return;
+    }
+
+    // Load the neural evaluator
+    NeuralEvaluator *evaluator = load_neural_evaluator(model_path);
+    if (!evaluator) {
+        printf("Failed to load neural model from %s\n", model_path);
+        return;
+    }
+
+    // Set as the global evaluator
+    set_neural_evaluator(evaluator);
+
+    // Create a board with the starting position
+    Board board;
+    setup_default_position(&board);
+
+    // Print the board
+    printf("Evaluating starting position:\n");
+    print_board(&board);
+
+    // Evaluate using the neural network
+    float score = neural_evaluate_position(evaluator, &board);
+    printf("Neural evaluation: %.3f\n", score);
+
+    // Compare with classical evaluation
+    float classic_score = evaluate_basic(&board);
+    printf("Classical evaluation: %.3f\n", classic_score);
+
+    // Try a few common opening positions
+    const char *test_positions[] = {
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",    // After 1.e4
+        "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",  // After 1.e4 e5
+        "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"  // After 1.e4 e5 2.Nf3
+    };
+
+    for (int i = 0; i < 3; i++) {
+        printf("\nEvaluating position %d:\n", i + 1);
+
+        if (!parse_fen(&board, test_positions[i])) {
+            printf("Failed to parse FEN: %s\n", test_positions[i]);
+            continue;
+        }
+
+        print_board(&board);
+
+        // Evaluate using the neural network
+        float score = neural_evaluate_position(evaluator, &board);
+        printf("Neural evaluation: %.3f\n", score);
+
+        // Compare with classical evaluation
+        float classic_score = evaluate_basic(&board);
+        printf("Classical evaluation: %.3f\n", classic_score);
+    }
+
+    // Clean up
+    free_neural_evaluator(evaluator);
+    set_neural_evaluator(NULL);
 }
 
 // Update the main function to handle the test-mode option
@@ -229,6 +294,10 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[1], "neural") == 0) {
             // Test neural input representation
             test_neural_input();
+        } else if (strcmp(argv[1], "neural-eval") == 0) {
+            // Test neural evaluation
+            const char *model_path = (argc > 2) ? argv[2] : "chess_model.onnx";
+            test_neural_evaluation(model_path);
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");
@@ -238,6 +307,7 @@ int main(int argc, char **argv) {
             printf("  eval                 - Test evaluation function\n");
             printf("  play [depth]         - Play against computer\n");
             printf("  neural              - Test neural input representation\n");
+            printf("  neural-eval [model]  - Test neural evaluation with ONNX model\n");
         }
     } else {
         // Default to interactive mode
