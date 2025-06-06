@@ -5,6 +5,9 @@
 #include "board.h"
 #include "movegen.h"
 #include "perft.h"
+#include "eval.h"
+#include "search.h"
+#include "neural.h"
 
 // Simple interactive mode to play against the engine
 void interactive_mode() {
@@ -62,6 +65,141 @@ void interactive_mode() {
     }
 }
 
+// Test the evaluation function
+void test_evaluation(void) {
+    Board board;
+    setup_default_position(&board);
+
+    printf("Evaluating starting position:\n");
+    print_board(&board);
+
+    float eval = evaluate_basic(&board);
+    printf("Evaluation: %.2f\n", eval);
+
+    // Make a move to test different positions
+    Move e4 = {SQUARE(FILE_E, RANK_2), SQUARE(FILE_E, RANK_4), EMPTY, false, false, false, -1};
+    make_move(&board, e4);
+
+    printf("\nAfter 1. e4:\n");
+    print_board(&board);
+
+    eval = evaluate_basic(&board);
+    printf("Evaluation: %.2f\n", eval);
+}
+
+// Add this function to play against the computer
+void play_against_computer(int depth) {
+    Board board;
+    setup_default_position(&board);
+
+    printf("Playing against computer (depth: %d)\n", depth);
+    printf("Enter moves in algebraic notation (e.g., e2e4)\n");
+    printf("Enter 'quit' to exit\n\n");
+
+    while (1) {
+        print_board(&board);
+        printf("\nEvaluation: %.2f\n", evaluate_basic(&board));
+
+        // Generate legal moves
+        MoveList moves;
+        generate_legal_moves(&board, &moves);
+
+        if (moves.count == 0) {
+            // Check if in check (checkmate)
+            int king_square = -1;
+            for (int sq = 0; sq < 64; sq++) {
+                if (board.pieces[sq].type == KING && board.pieces[sq].color == board.side_to_move) {
+                    king_square = sq;
+                    break;
+                }
+            }
+
+            if (king_square != -1 && is_square_attacked(&board, king_square, !board.side_to_move)) {
+                printf("Checkmate! %s wins.\n", board.side_to_move == WHITE ? "Black" : "White");
+            } else {
+                printf("Stalemate! Game is a draw.\n");
+            }
+            break;
+        }
+
+        if (board.side_to_move == WHITE) {
+            printf("Your move (white): ");
+            char input[10];
+            if (scanf("%9s", input) != 1) {
+                printf("Error reading input\n");
+                break;
+            }
+
+            if (strcmp(input, "quit") == 0) {
+                break;
+            }
+
+            // Parse the move
+            if (strlen(input) < 4) {
+                printf("Invalid move format. Use e2e4 format.\n");
+                continue;
+            }
+
+            int from_file = input[0] - 'a';
+            int from_rank = input[1] - '1';
+            int to_file = input[2] - 'a';
+            int to_rank = input[3] - '1';
+
+            if (from_file < 0 || from_file > 7 || from_rank < 0 || from_rank > 7 ||
+                to_file < 0 || to_file > 7 || to_rank < 0 || to_rank > 7) {
+                printf("Invalid move coordinates.\n");
+                continue;
+            }
+
+            int from_sq = SQUARE(from_file, from_rank);
+            int to_sq = SQUARE(to_file, to_rank);
+
+            // Find matching legal move
+            bool move_found = false;
+            for (int i = 0; i < moves.count; i++) {
+                if (moves.moves[i].from == from_sq && moves.moves[i].to == to_sq) {
+                    // Handle promotion
+                    if (board.pieces[from_sq].type == PAWN && to_rank == 7) {
+                        moves.moves[i].promotion = QUEEN;  // Default to queen promotion
+                    }
+                    make_move(&board, moves.moves[i]);
+                    move_found = true;
+                    break;
+                }
+            }
+
+            if (!move_found) {
+                printf("Illegal move. Try again.\n");
+                continue;
+            }
+        } else {
+            // Computer's move
+            Move computer_move = get_computer_move(&board, depth);
+            make_move(&board, computer_move);
+        }
+    }
+}
+
+// Test the neural input representation
+void test_neural_input(void) {
+    Board board;
+    setup_default_position(&board);
+    
+    printf("Testing neural input representation for starting position:\n");
+    print_board(&board);
+    print_tensor_representation(&board);
+    
+    // Test with a more complex position
+    if (!parse_fen(&board, "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3")) {
+        printf("Failed to parse FEN\n");
+        return;
+    }
+    
+    printf("\nTesting neural input representation for position after 1.e4 e5 2.Nf3 Nc6:\n");
+    print_board(&board);
+    print_tensor_representation(&board);
+}
+
 // Update the main function to handle the test-mode option
 int main(int argc, char **argv) {
     printf("TDChess - A chess engine\n\n");
@@ -81,12 +219,25 @@ int main(int argc, char **argv) {
             // New test-mode option
             int max_depth = (argc > 2) ? atoi(argv[2]) : 3;
             run_perft_tests(max_depth);
+        } else if (strcmp(argv[1], "eval") == 0) {
+            // Test evaluation function
+            test_evaluation();
+        } else if (strcmp(argv[1], "play") == 0) {
+            // Play against computer
+            int depth = (argc > 2) ? atoi(argv[2]) : 3;
+            play_against_computer(depth);
+        } else if (strcmp(argv[1], "neural") == 0) {
+            // Test neural input representation
+            test_neural_input();
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");
             printf("  perft [depth]       - Run perft to specified depth\n");
             printf("  perft-detail [depth] - Show detailed perft results\n");
             printf("  test [max_depth]     - Run perft tests on standard positions\n");
+            printf("  eval                 - Test evaluation function\n");
+            printf("  play [depth]         - Play against computer\n");
+            printf("  neural              - Test neural input representation\n");
         }
     } else {
         // Default to interactive mode

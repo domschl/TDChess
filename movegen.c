@@ -53,14 +53,14 @@ void generate_legal_moves(const Board *board, MoveList *list) {
 bool is_move_legal(const Board *board, Move move) {
     // Make a copy of the board
     Board temp_board = *board;
-    
+
     // Make the move on the copy
     make_move(&temp_board, move);
-    
+
     // Find the king of the side that just moved
     Color side = board->side_to_move;
     int king_square = -1;
-    
+
     // Search for the king
     for (int sq = 0; sq < 64; sq++) {
         if (temp_board.pieces[sq].type == KING && temp_board.pieces[sq].color == side) {
@@ -68,39 +68,39 @@ bool is_move_legal(const Board *board, Move move) {
             break;
         }
     }
-    
+
     // If king not found (shouldn't happen), consider the move illegal
     if (king_square == -1) {
         return false;
     }
-    
+
     // Check if the king is in check after the move
     if (is_square_attacked(&temp_board, king_square, !side)) {
-        return false; // King would be in check, illegal move
+        return false;  // King would be in check, illegal move
     }
-    
-    return true; // Move is legal
+
+    return true;  // Move is legal
 }
 
 // Generate pawn moves
-void generate_pawn_moves(const Board* board, MoveList* list) {
+void generate_pawn_moves(const Board *board, MoveList *list) {
     Color side = board->side_to_move;
     Color opponent = !side;
-    
+
     // Direction pawns move (up for white, down for black)
     int pawn_push = (side == WHITE) ? 8 : -8;
     int start_rank = (side == WHITE) ? RANK_2 : RANK_7;
     int promotion_rank = (side == WHITE) ? RANK_7 : RANK_2;
-    
+
     // Get all pawns of the current side
     for (int sq = 0; sq < 64; sq++) {
         if (board->pieces[sq].type != PAWN || board->pieces[sq].color != side) {
             continue;
         }
-        
+
         int file = FILE(sq);
         int rank = RANK(sq);
-        
+
         // Single push
         int to_sq = sq + pawn_push;
         if (to_sq >= 0 && to_sq < 64 && board->pieces[to_sq].type == EMPTY) {
@@ -112,7 +112,7 @@ void generate_pawn_moves(const Board* board, MoveList* list) {
                 add_move(list, sq, to_sq, KNIGHT, false, false, false, -1);
             } else {
                 add_move(list, sq, to_sq, EMPTY, false, false, false, -1);
-                
+
                 // Double push from starting rank
                 if (rank == start_rank) {
                     int double_to = sq + 2 * pawn_push;
@@ -122,25 +122,25 @@ void generate_pawn_moves(const Board* board, MoveList* list) {
                 }
             }
         }
-        
+
         // Captures
         for (int dir = -1; dir <= 1; dir += 2) {
             // Skip if at the edge of the board
             if ((dir == -1 && file == 0) || (dir == 1 && file == 7)) {
                 continue;
             }
-            
+
             int capture_sq = sq + pawn_push + dir;
-            
+
             // Ensure the square is on the board
             if (capture_sq < 0 || capture_sq >= 64) {
                 continue;
             }
-            
+
             // Regular capture
-            if (board->pieces[capture_sq].type != EMPTY && 
+            if (board->pieces[capture_sq].type != EMPTY &&
                 board->pieces[capture_sq].color == opponent) {
-                
+
                 // Check for promotion
                 if (rank == promotion_rank) {
                     add_move(list, sq, capture_sq, QUEEN, true, false, false, -1);
@@ -151,10 +151,10 @@ void generate_pawn_moves(const Board* board, MoveList* list) {
                     add_move(list, sq, capture_sq, EMPTY, true, false, false, -1);
                 }
             }
-            
+
             // En passant capture
             if (capture_sq == board->en_passant_square && board->en_passant_square != -1) {
-                int captured_sq = capture_sq - pawn_push; // Pawn to be captured
+                int captured_sq = capture_sq - pawn_push;  // Pawn to be captured
                 add_move(list, sq, capture_sq, EMPTY, true, false, true, captured_sq);
             }
         }
@@ -283,9 +283,9 @@ void generate_rook_moves(const Board *board, MoveList *list) {
                     int to_rank = RANK(to);
 
                     // Check if we're moving horizontally or vertically (not wrapping around the board)
-                    if (dir == 1 || dir == -1) { // Horizontal movement
+                    if (dir == 1 || dir == -1) {  // Horizontal movement
                         if (to_rank != current_rank) break;
-                    } else { // Vertical movement
+                    } else {  // Vertical movement
                         if (to_file != current_file) break;
                     }
 
@@ -339,13 +339,13 @@ void generate_queen_moves(const Board *board, MoveList *list) {
                     int to_rank = RANK(to);
 
                     // Check move validity based on direction
-                    if (dir == -9 || dir == 7 || dir == -7 || dir == 9) { // Diagonal moves
+                    if (dir == -9 || dir == 7 || dir == -7 || dir == 9) {  // Diagonal moves
                         int file_diff = abs(to_file - current_file);
                         int rank_diff = abs(to_rank - current_rank);
                         if (file_diff != 1 || rank_diff != 1) break;
-                    } else if (dir == -1 || dir == 1) { // Horizontal moves
+                    } else if (dir == -1 || dir == 1) {  // Horizontal moves
                         if (to_rank != current_rank) break;
-                    } else { // Vertical moves
+                    } else {  // Vertical moves
                         if (to_file != current_file) break;
                     }
 
@@ -723,4 +723,309 @@ Move string_to_move(const Board *board, const char *str) {
     }
 
     return move;
+}
+
+// Generate all captures for the current side to move
+void generate_captures(const Board *board, MoveList *list) {
+    // Clear the move list
+    list->count = 0;
+
+    // Generate captures for each piece type
+    generate_pawn_captures(board, list);
+    generate_knight_captures(board, list);
+    generate_bishop_captures(board, list);
+    generate_rook_captures(board, list);
+    generate_queen_captures(board, list);
+    generate_king_captures(board, list);
+}
+
+// Generate pawn captures
+void generate_pawn_captures(const Board *board, MoveList *list) {
+    Color side = board->side_to_move;
+    Color opponent = !side;
+
+    // Direction pawns move (up for white, down for black)
+    int pawn_push = (side == WHITE) ? 8 : -8;
+    int promotion_rank = (side == WHITE) ? RANK_7 : RANK_2;
+
+    // Get all pawns of the current side
+    for (int sq = 0; sq < 64; sq++) {
+        if (board->pieces[sq].type != PAWN || board->pieces[sq].color != side) {
+            continue;
+        }
+
+        int file = FILE(sq);
+        int rank = RANK(sq);
+
+        // Promotion is considered a "capture" for quiescence search
+        if (rank == promotion_rank) {
+            int to_sq = sq + pawn_push;
+            if (to_sq >= 0 && to_sq < 64 && board->pieces[to_sq].type == EMPTY) {
+                add_move(list, sq, to_sq, QUEEN, false, false, false, -1);
+                // Only queen promotions for quiescence (simplification)
+            }
+        }
+
+        // Captures
+        for (int dir = -1; dir <= 1; dir += 2) {
+            // Skip if at the edge of the board
+            if ((dir == -1 && file == 0) || (dir == 1 && file == 7)) {
+                continue;
+            }
+
+            int capture_sq = sq + pawn_push + dir;
+
+            // Ensure the square is on the board
+            if (capture_sq < 0 || capture_sq >= 64) {
+                continue;
+            }
+
+            // Regular capture
+            if (board->pieces[capture_sq].type != EMPTY &&
+                board->pieces[capture_sq].color == opponent) {
+
+                // Check for promotion
+                if (rank == promotion_rank) {
+                    add_move(list, sq, capture_sq, QUEEN, true, false, false, -1);
+                    // Only queen promotions for quiescence (simplification)
+                } else {
+                    add_move(list, sq, capture_sq, EMPTY, true, false, false, -1);
+                }
+            }
+
+            // En passant capture
+            if (capture_sq == board->en_passant_square && board->en_passant_square != -1) {
+                int captured_sq = capture_sq - pawn_push;  // Pawn to be captured
+                add_move(list, sq, capture_sq, EMPTY, true, false, true, captured_sq);
+            }
+        }
+    }
+}
+
+// Generate knight captures
+void generate_knight_captures(const Board *board, MoveList *list) {
+    Color side = board->side_to_move;
+    Color opponent = !side;
+
+    // Knight movement offsets
+    int knight_offsets[8][2] = {
+        {-2, -1}, {-2, 1}, {-1, -2}, {-1, 2}, {1, -2}, {1, 2}, {2, -1}, {2, 1}};
+
+    // Get all knights of the current side
+    for (int sq = 0; sq < 64; sq++) {
+        if (board->pieces[sq].type != KNIGHT || board->pieces[sq].color != side) {
+            continue;
+        }
+
+        int from_file = FILE(sq);
+        int from_rank = RANK(sq);
+
+        // Try each knight move
+        for (int i = 0; i < 8; i++) {
+            int to_file = from_file + knight_offsets[i][0];
+            int to_rank = from_rank + knight_offsets[i][1];
+
+            // Check if the target square is on the board
+            if (to_file < 0 || to_file > 7 || to_rank < 0 || to_rank > 7) {
+                continue;
+            }
+
+            int to_sq = SQUARE(to_file, to_rank);
+
+            // Only consider captures
+            if (board->pieces[to_sq].type != EMPTY && board->pieces[to_sq].color == opponent) {
+                add_move(list, sq, to_sq, EMPTY, true, false, false, -1);
+            }
+        }
+    }
+}
+
+// Generate bishop captures
+void generate_bishop_captures(const Board *board, MoveList *list) {
+    Color side = board->side_to_move;
+    Color opponent = !side;
+
+    // Bishop movement directions (diagonal)
+    int bishop_dirs[4][2] = {
+        {-1, -1}, {-1, 1}, {1, -1}, {1, 1}
+    };
+
+    // Get all bishops of the current side
+    for (int sq = 0; sq < 64; sq++) {
+        if (board->pieces[sq].type != BISHOP || board->pieces[sq].color != side) {
+            continue;
+        }
+
+        int from_file = FILE(sq);
+        int from_rank = RANK(sq);
+
+        // Try each direction
+        for (int i = 0; i < 4; i++) {
+            int dir_file = bishop_dirs[i][0];
+            int dir_rank = bishop_dirs[i][1];
+
+            int to_file = from_file + dir_file;
+            int to_rank = from_rank + dir_rank;
+
+            // Move in this direction until we hit a piece or the edge of the board
+            while (to_file >= 0 && to_file <= 7 && to_rank >= 0 && to_rank <= 7) {
+                int to_sq = SQUARE(to_file, to_rank);
+
+                // Empty square - continue sliding
+                if (board->pieces[to_sq].type == EMPTY) {
+                    to_file += dir_file;
+                    to_rank += dir_rank;
+                    continue;
+                }
+
+                // Capture opponent's piece
+                if (board->pieces[to_sq].color == opponent) {
+                    add_move(list, sq, to_sq, EMPTY, true, false, false, -1);
+                }
+
+                // Stop sliding after hitting any piece
+                break;
+            }
+        }
+    }
+}
+
+// Generate rook captures
+void generate_rook_captures(const Board *board, MoveList *list) {
+    Color side = board->side_to_move;
+    Color opponent = !side;
+
+    // Rook movement directions (orthogonal)
+    int rook_dirs[4][2] = {
+        {-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+
+    // Get all rooks of the current side
+    for (int sq = 0; sq < 64; sq++) {
+        if (board->pieces[sq].type != ROOK || board->pieces[sq].color != side) {
+            continue;
+        }
+
+        int from_file = FILE(sq);
+        int from_rank = RANK(sq);
+
+        // Try each direction
+        for (int i = 0; i < 4; i++) {
+            int dir_file = rook_dirs[i][0];
+            int dir_rank = rook_dirs[i][1];
+
+            int to_file = from_file + dir_file;
+            int to_rank = from_rank + dir_rank;
+
+            // Move in this direction until we hit a piece or the edge of the board
+            while (to_file >= 0 && to_file <= 7 && to_rank >= 0 && to_rank <= 7) {
+                int to_sq = SQUARE(to_file, to_rank);
+
+                // Empty square - continue sliding
+                if (board->pieces[to_sq].type == EMPTY) {
+                    to_file += dir_file;
+                    to_rank += dir_rank;
+                    continue;
+                }
+
+                // Capture opponent's piece
+                if (board->pieces[to_sq].color == opponent) {
+                    add_move(list, sq, to_sq, EMPTY, true, false, false, -1);
+                }
+
+                // Stop sliding after hitting any piece
+                break;
+            }
+        }
+    }
+}
+
+// Generate queen captures
+void generate_queen_captures(const Board *board, MoveList *list) {
+    Color side = board->side_to_move;
+    Color opponent = !side;
+
+    // Queen movement directions (both diagonal and orthogonal)
+    int queen_dirs[8][2] = {
+        {-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
+
+    // Get all queens of the current side
+    for (int sq = 0; sq < 64; sq++) {
+        if (board->pieces[sq].type != QUEEN || board->pieces[sq].color != side) {
+            continue;
+        }
+
+        int from_file = FILE(sq);
+        int from_rank = RANK(sq);
+
+        // Try each direction
+        for (int i = 0; i < 8; i++) {
+            int dir_file = queen_dirs[i][0];
+            int dir_rank = queen_dirs[i][1];
+
+            int to_file = from_file + dir_file;
+            int to_rank = from_rank + dir_rank;
+
+            // Move in this direction until we hit a piece or the edge of the board
+            while (to_file >= 0 && to_file <= 7 && to_rank >= 0 && to_rank <= 7) {
+                int to_sq = SQUARE(to_file, to_rank);
+
+                // Empty square - continue sliding
+                if (board->pieces[to_sq].type == EMPTY) {
+                    to_file += dir_file;
+                    to_rank += dir_rank;
+                    continue;
+                }
+
+                // Capture opponent's piece
+                if (board->pieces[to_sq].color == opponent) {
+                    add_move(list, sq, to_sq, EMPTY, true, false, false, -1);
+                }
+
+                // Stop sliding after hitting any piece
+                break;
+            }
+        }
+    }
+}
+
+// Generate king captures
+void generate_king_captures(const Board *board, MoveList *list) {
+    Color side = board->side_to_move;
+    Color opponent = !side;
+
+    // King movement directions
+    int king_dirs[8][2] = {
+        {-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}};
+
+    // Find the king
+    int king_sq = -1;
+    for (int sq = 0; sq < 64; sq++) {
+        if (board->pieces[sq].type == KING && board->pieces[sq].color == side) {
+            king_sq = sq;
+            break;
+        }
+    }
+
+    if (king_sq == -1) return;  // No king found (shouldn't happen in a valid position)
+
+    int from_file = FILE(king_sq);
+    int from_rank = RANK(king_sq);
+
+    // Try each king move
+    for (int i = 0; i < 8; i++) {
+        int to_file = from_file + king_dirs[i][0];
+        int to_rank = from_rank + king_dirs[i][1];
+
+        // Check if the target square is on the board
+        if (to_file < 0 || to_file > 7 || to_rank < 0 || to_rank > 7) {
+            continue;
+        }
+
+        int to_sq = SQUARE(to_file, to_rank);
+
+        // Only consider captures
+        if (board->pieces[to_sq].type != EMPTY && board->pieces[to_sq].color == opponent) {
+            add_move(list, king_sq, to_sq, EMPTY, true, false, false, -1);
+        }
+    }
 }

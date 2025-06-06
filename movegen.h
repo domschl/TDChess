@@ -10,12 +10,20 @@
 // Move list structure
 typedef struct {
     Move moves[MAX_MOVES];
+    int scores[MAX_MOVES];  // Add scores for move ordering
     int count;
 } MoveList;
 
 // Move generation functions
 void generate_moves(const Board *board, MoveList *list);
 void generate_legal_moves(const Board *board, MoveList *list);
+void generate_captures(const Board *board, MoveList *list);
+void generate_pawn_captures(const Board *board, MoveList *list);
+void generate_knight_captures(const Board *board, MoveList *list);
+void generate_bishop_captures(const Board *board, MoveList *list);
+void generate_rook_captures(const Board *board, MoveList *list);
+void generate_queen_captures(const Board *board, MoveList *list);
+void generate_king_captures(const Board *board, MoveList *list);
 
 // Helper functions for specific piece types
 void generate_pawn_moves(const Board *board, MoveList *list);
