@@ -14,6 +14,9 @@ set(SOURCES
     board.c
     movegen.c
     perft.c
+    eval.c
+    search.c
+    neural.c
 )
 
 # Headers
@@ -21,6 +24,9 @@ set(HEADERS
     board.h
     movegen.h
     perft.h
+    eval.h
+    search.h
+    neural.h
 )
 
 # Define the executable
