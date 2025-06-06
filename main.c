@@ -9,6 +9,7 @@
 #include "search.h"
 #include "neural.h"
 #include "python_binding.h"
+#include "td_learning.h"
 
 // Add this function declaration at the top of the file with other function declarations
 
@@ -398,7 +399,57 @@ void cmd_test_neural_model(const char *model_path) {
     // Explicit cleanup is not needed due to atexit() registration
 }
 
-// Update the main function to handle the test-mode option
+// Add new td-lambda command
+
+/**
+ * Run a full TD-Lambda training cycle
+ *
+ * @param initial_model Path to the initial model (or empty for new model)
+ * @param output_model Path for the output model
+ * @param num_games Number of self-play games to generate
+ * @param lambda Lambda parameter value
+ */
+void cmd_td_lambda_training(const char *initial_model, const char *output_model,
+                            int num_games, float lambda) {
+    printf("Starting TD-Lambda training cycle\n");
+
+    // Set up parameters
+    TDLambdaParams params;
+    params.lambda = lambda;
+    params.learning_rate = 0.01f;
+    params.num_games = num_games;
+    params.max_moves = 100;
+    params.model_path = initial_model;
+
+    // Create dataset filename
+    char dataset_path[256];
+    snprintf(dataset_path, sizeof(dataset_path), "%s.dataset.json", output_model);
+    params.output_path = dataset_path;
+
+    // Generate TD-Lambda dataset
+    if (!generate_td_lambda_dataset(&params)) {
+        printf("Failed to generate TD-Lambda dataset\n");
+        return;
+    }
+
+    // Train the model using Python script
+    char command[512];
+    snprintf(command, sizeof(command),
+             "python train_neural.py --dataset %s --output %s --epochs 100 --batch-size 128 --learning-rate %.5f",
+             dataset_path, output_model, params.learning_rate);
+
+    printf("Running training command: %s\n", command);
+    int result = system(command);
+
+    if (result != 0) {
+        printf("Training failed with exit code %d\n", result);
+    } else {
+        printf("TD-Lambda training cycle completed successfully\n");
+        printf("New model saved to: %s\n", output_model);
+    }
+}
+
+// Update main function to include the new command
 int main(int argc, char **argv) {
     printf("TDChess - A chess engine\n\n");
 
@@ -442,6 +493,13 @@ int main(int argc, char **argv) {
             int depth = (argc > 2) ? atoi(argv[2]) : 3;
             const char *model_path = (argc > 3) ? argv[3] : "chess_model.onnx";
             play_with_neural(model_path, depth);
+        } else if (strcmp(argv[1], "td-lambda") == 0) {
+            // TD-Lambda training
+            const char *initial_model = (argc > 2 && strlen(argv[2]) > 0) ? argv[2] : "chess_model.onnx";
+            const char *output_model = (argc > 3) ? argv[3] : "chess_model_improved.onnx";
+            int num_games = (argc > 4) ? atoi(argv[4]) : 100;
+            float lambda = (argc > 5) ? atof(argv[5]) : 0.7f;
+            cmd_td_lambda_training(initial_model, output_model, num_games, lambda);
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");
@@ -454,6 +512,7 @@ int main(int argc, char **argv) {
             printf("  neural-eval [model]  - Test neural evaluation with ONNX model\n");
             printf("  generate-dataset [file] [count] [depth] - Generate training dataset\n");
             printf("  play-neural [depth] [model] - Play against computer with neural evaluation\n");
+            printf("  td-lambda [initial_model] [output_model] [games] [lambda] - Run TD-Lambda training\n");
         }
     } else {
         // Default to interactive mode

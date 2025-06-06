@@ -38,6 +38,7 @@ add_executable(TDChess
     eval.c
     search.c
     neural.c
+    td_learning.c
     python_binding.c
 )
 
