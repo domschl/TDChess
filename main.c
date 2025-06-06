@@ -78,7 +78,20 @@ void test_evaluation(void) {
     printf("Evaluation: %.2f\n", eval);
 
     // Make a move to test different positions
-    Move e4 = {SQUARE(SQUARE_FILE_E, SQUARE_RANK_2), SQUARE(SQUARE_FILE_E, SQUARE_RANK_4), EMPTY, false, false, false, -1};
+    Move e4 = {
+        .from = SQUARE(SQUARE_FILE_E, SQUARE_RANK_2),
+        .to = SQUARE(SQUARE_FILE_E, SQUARE_RANK_4),
+        .promotion = EMPTY,
+        .capture = false,
+        .castling = false,
+        .en_passant = false,
+        .captured_piece_square = -1,
+        .captured_piece_type = EMPTY,
+        .captured_piece_color = WHITE,  // Default, doesn't matter for non-captures
+        .old_castle_rights = 0,         // Will be set by make_move
+        .old_en_passant = -1,           // Will be set by make_move
+        .old_halfmove_clock = 0         // Will be set by make_move
+    };
     make_move(&board, &e4);
 
     printf("\nAfter 1. e4:\n");
@@ -288,9 +301,9 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
     // Use alpha-beta search to play some moves and collect positions
     int pos_count = 0;
 
-    // Collect first position
-    positions[pos_count] = current_board;
-    evaluations[pos_count] = evaluate_basic(&current_board);
+    // Collect first position (using memcpy for safer copying)
+    memcpy(&positions[pos_count], &current_board, sizeof(Board));
+    evaluations[pos_count] = evaluate_position(&current_board);
     pos_count++;
 
     // Play moves and collect positions
@@ -300,12 +313,12 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
         Move best_move;
         find_best_move(&current_board, search_depth, &best_move, &nodes);
 
-        // Make the move
-        make_move(&current_board, &best_move);
+        // Make the move - using correct signature based on your implementation
+        make_move(&current_board, &best_move);  // Adjust if your function takes a pointer
 
-        // Collect position
-        positions[pos_count] = current_board;
-        evaluations[pos_count] = evaluate_basic(&current_board);
+        // Collect position (using memcpy for safer copying)
+        memcpy(&positions[pos_count], &current_board, sizeof(Board));
+        evaluations[pos_count] = evaluate_position(&current_board);
         pos_count++;
 
         // Print progress

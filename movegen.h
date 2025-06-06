@@ -53,7 +53,7 @@ void generate_king_moves(const Board *board, MoveList *list);
 
 // Helper functions
 bool is_move_legal(const Board *board, Move move);
-static void add_move(MoveList *list, int from, int to, PieceType promotion, bool capture, bool castling, bool en_passant, int captured_square);
+// static void add_move(MoveList *list, int from, int to, PieceType promotion, bool capture, bool castling, bool en_passant, int captured_square);
 
 // Move execution functions
 bool make_move(Board *board, Move *move);

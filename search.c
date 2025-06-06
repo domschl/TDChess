@@ -14,11 +14,13 @@
 #define MAX_QUIESCENCE_NODES 10000
 
 // Check if time for search has elapsed
+/*
 static bool time_up(clock_t start_time, int time_limit_ms) {
     clock_t current = clock();
     double elapsed_ms = (double)(current - start_time) * 1000.0 / CLOCKS_PER_SEC;
     return elapsed_ms >= time_limit_ms;
 }
+*/
 
 // Quiescence search to evaluate tactical positions at the horizon
 float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, int qdepth) {
@@ -243,10 +245,10 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
 
             // MVV-LVA scoring for captures
             int victim_square = moves.moves[i].to;
-            int attacker_square = moves.moves[i].from;
+            // int attacker_square = moves.moves[i].from;
 
             PieceType victim_type = board->pieces[victim_square].type;
-            PieceType attacker_type = board->pieces[attacker_square].type;
+            // PieceType attacker_type = board->pieces[attacker_square].type;
 
             // Get values
             int victim_value = 0;
