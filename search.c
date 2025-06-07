@@ -10,8 +10,9 @@
 // Fix quiescence search to prevent endless loops and improve tactical evaluation
 
 // Add a maximum quiescence depth constant
-#define MAX_QUIESCENCE_DEPTH 4
+#define MAX_QUIESCENCE_DEPTH 8
 #define MAX_QUIESCENCE_NODES 10000
+#define DELTA_PRUNING_MARGIN 200 // Value in centipawns (e.g., 200 for 2 pawns)
 
 // Check if time for search has elapsed
 /*
@@ -164,9 +165,90 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
 
     // Try each move
     for (int i = 0; i < moves.count; i++) {
-        // Skip non-captures if not in check and we're beyond the first level of quiescence
-        if (!in_check && !moves.moves[i].capture && qdepth < MAX_QUIESCENCE_DEPTH) {
-            continue;
+        // --- Non-Capture Move Handling in Quiescence ---
+        // When not in check, non-capture moves are handled specially:
+        // 1. Checking Moves: Non-capture moves that deliver a check to the opponent are
+        //    explored further into the quiescence search. This is important for tactical
+        //    sequences that might involve a quiet setup move leading to a forced mate or
+        //    material gain via a check.
+        // 2. Quiet Moves at Horizon (qdepth == MAX_QUIESCENCE_DEPTH): Non-capture, non-checking
+        //    moves are only considered if we are at the very first ply of the quiescence search.
+        //    This allows for the possibility that the position is not truly quiet and a
+        //    tactical sequence might start with a non-capture.
+        // 3. Quiet Moves Deeper: Non-capture, non-checking moves beyond the first ply are pruned.
+        //    The assumption is that if no captures or checks are promising, the position
+        //    has stabilized enough to rely on the static evaluation.
+        if (!in_check && !moves.moves[i].capture) {
+            // Check if this non-capture move gives a check to the opponent
+            Board after_move_board = *board; // Create a temporary board copy
+            make_move(&after_move_board, &(moves.moves[i])); // Make the move on the temporary board
+
+            // Find the king of the player whose turn it is *after* this move
+            int opponent_king_square = -1;
+            for (int sq = 0; sq < 64; sq++) {
+                // after_move_board.side_to_move is the opponent's color now
+                if (after_move_board.pieces[sq].type == KING && after_move_board.pieces[sq].color == after_move_board.side_to_move) {
+                    opponent_king_square = sq;
+                    break;
+                }
+            }
+
+            bool is_check_move = false;
+            if (opponent_king_square != -1) {
+                // Check if the opponent's king is attacked by the current player (original board->side_to_move)
+                is_check_move = is_square_attacked(&after_move_board, opponent_king_square, board->side_to_move);
+            }
+
+            if (!is_check_move && qdepth < MAX_QUIESCENCE_DEPTH) {
+                // If it's NOT a checking move AND we are beyond the first quiescence ply, skip it.
+                // Checking moves are allowed deeper.
+                // All non-captures are allowed at the first ply (qdepth == MAX_QUIESCENCE_DEPTH).
+                continue;
+            }
+        }
+
+        // --- Delta Pruning ---
+        // Delta pruning is a technique used in quiescence search to avoid exploring
+        // captures that are very unlikely to improve the current player's position
+        // significantly enough to raise alpha (the lower bound of the search window).
+        //
+        // The logic is as follows:
+        // - `stand_pat`: The static evaluation of the current board position *before* making the capture.
+        // - `captured_piece_value`: The material value of the piece being captured.
+        // - `DELTA_PRUNING_MARGIN`: A safety margin.
+        //
+        // If `stand_pat + captured_piece_value + DELTA_PRUNING_MARGIN < alpha`,
+        // it means that even if we make this capture, and add a safety margin,
+        // the resulting evaluation is still worse than what we are already guaranteed (alpha).
+        // Therefore, this capture is unlikely to be part of the best line of play,
+        // and we can prune (skip) searching it further.
+        // This is particularly effective at cutting down searches of sequences where,
+        // for example, the engine is losing and tries a series of minor captures that
+        // don't actually change the outcome.
+        //
+        // This check is only applied to capture moves.
+        if (moves.moves[i].capture) {
+            PieceType victim_type = board->pieces[moves.moves[i].to].type;
+            // Ensure victim_type is valid and not EMPTY.
+            // (A well-formed capture move should always target a non-empty square)
+            if (victim_type != EMPTY) { // Check against EMPTY from board.h (assuming PieceType enum)
+                int captured_piece_value = 0;
+                switch (victim_type) {
+                    case PAWN: captured_piece_value = PAWN_VALUE; break;
+                    case KNIGHT: captured_piece_value = KNIGHT_VALUE; break;
+                    case BISHOP: captured_piece_value = BISHOP_VALUE; break;
+                    case ROOK: captured_piece_value = ROOK_VALUE; break;
+                    case QUEEN: captured_piece_value = QUEEN_VALUE; break;
+                    // No default case needed as captured_piece_value remains 0 for unknown types,
+                    // which means the pruning condition would be based on stand_pat + 0 + margin < alpha.
+                }
+
+                if (stand_pat + captured_piece_value + DELTA_PRUNING_MARGIN < alpha) {
+                    // If the improvement from this capture is still too low to raise alpha,
+                    // then skip this move.
+                    continue;
+                }
+            }
         }
 
         Board new_board = *board;
