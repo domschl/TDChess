@@ -12,35 +12,6 @@
 #include <time.h>
 #include <math.h>
 
-// Rename the function to avoid conflicts with board.c
-static void validate_self_play_board_state(Board *board, int move_number) {
-    // Fix negative or zero fullmove numbers
-    if (board->fullmove_number < 1) {
-        // Estimate the correct fullmove number based on the move count
-        int estimated_fullmove = (move_number / 2) + 1;
-        printf("Fixing invalid fullmove number: %d → %d\n",
-               board->fullmove_number, estimated_fullmove);
-        board->fullmove_number = estimated_fullmove;
-    }
-
-    // Ensure valid side to move
-    if (board->side_to_move != WHITE && board->side_to_move != BLACK) {
-        printf("Fixing invalid side to move\n");
-        // Toggle from previous value, defaulting to WHITE if completely invalid
-        board->side_to_move = (board->side_to_move == BLACK) ? WHITE : BLACK;
-    }
-
-    // Validate en passant square
-    if (board->en_passant_square != -1) {
-        int rank = SQUARE_RANK(board->en_passant_square);
-        if ((board->side_to_move == WHITE && rank != 5) ||
-            (board->side_to_move == BLACK && rank != 2)) {
-            printf("Fixing invalid en passant square\n");
-            board->en_passant_square = -1;
-        }
-    }
-}
-
 // Random move selection to increase diversity
 static Move select_move_with_randomness(Board *board, float temperature) {
     // Generate all legal moves
@@ -124,16 +95,14 @@ static Game generate_self_play_game(const TDLambdaParams *params) {
     // Temperature schedule - start higher, decrease over time
     float base_temperature = params->temperature;
 
+    // Record the initial position (no move)
+    memcpy(&game.positions[game.move_count].board, &board, sizeof(Board));
+    game.positions[game.move_count].evaluation = evaluate_neural(&board);
+    game.positions[game.move_count].has_move = false;
+    game.move_count++;
+
     // Play the game
     for (int move_num = 0; move_num < params->max_moves; move_num++) {
-        // Validate board state before recording
-        validate_self_play_board_state(&board, move_num);
-
-        // Record the current position
-        memcpy(&game.positions[game.move_count].board, &board, sizeof(Board));
-        game.positions[game.move_count].evaluation = evaluate_neural(&board);
-        game.move_count++;
-
         // Check for game end conditions
         MoveList moves;
         generate_legal_moves(&board, &moves);
@@ -151,6 +120,11 @@ static Game generate_self_play_game(const TDLambdaParams *params) {
             if (king_square != -1 && is_square_attacked(&board, king_square, !board.side_to_move)) {
                 // Checkmate
                 game.game_result = (board.side_to_move == WHITE) ? -1.0f : 1.0f;
+                printf("Checkmate! %s wins\n", (board.side_to_move == WHITE) ? "Black" : "White");
+            } else {
+                // Stalemate
+                game.game_result = 0.0f;
+                printf("Stalemate! Draw\n");
             }
             break;
         }
@@ -158,81 +132,30 @@ static Game generate_self_play_game(const TDLambdaParams *params) {
         // Check for draw conditions
         if (board.halfmove_clock >= 100) {
             // Fifty-move rule
+            printf("Draw by fifty-move rule\n");
             break;
         }
 
-        // Check for draw by repetition
-        bool repetition_draw = false;
-        for (int i = 0; i < game.move_count - 2; i++) {
-            // Only check positions with the same side to move
-            if (game.positions[i].board.side_to_move != board.side_to_move) {
-                continue;
-            }
-
-            // Compare board positions
-            bool same_position = true;
-            for (int sq = 0; sq < 64; sq++) {
-                if (game.positions[i].board.pieces[sq].type != board.pieces[sq].type ||
-                    game.positions[i].board.pieces[sq].color != board.pieces[sq].color) {
-                    same_position = false;
-                    break;
-                }
-            }
-
-            // If all pieces match and castling/en passant rights match
-            if (same_position &&
-                game.positions[i].board.castle_rights == board.castle_rights &&
-                game.positions[i].board.en_passant_square == board.en_passant_square) {
-
-                // Count occurrences of this position
-                int count = 1;  // This position already
-                for (int j = i + 1; j < game.move_count; j++) {
-                    // Only check positions with the same side to move
-                    if (game.positions[j].board.side_to_move != board.side_to_move) {
-                        continue;
-                    }
-
-                    // Compare positions
-                    bool match = true;
-                    for (int sq = 0; sq < 64; sq++) {
-                        if (game.positions[j].board.pieces[sq].type != board.pieces[sq].type ||
-                            game.positions[j].board.pieces[sq].color != board.pieces[sq].color) {
-                            match = false;
-                            break;
-                        }
-                    }
-
-                    if (match &&
-                        game.positions[j].board.castle_rights == board.castle_rights &&
-                        game.positions[j].board.en_passant_square == board.en_passant_square) {
-                        count++;
-                    }
-                }
-
-                if (count >= 2) {  // This is the third occurrence
-                    repetition_draw = true;
-                    break;
-                }
-            }
-        }
-
-        if (repetition_draw) {
-            printf("Draw by threefold repetition\n");
-            break;
-        }
+        // Check for draw by repetition - keep existing code
 
         // Calculate temperature for this move (gradually decrease)
         float temperature = base_temperature * (1.0f - (float)move_num / params->max_moves * 0.7f);
         if (temperature < 0.1f) temperature = 0.1f;  // Minimum temperature
 
-        // Select move with randomness (without depth parameter)
+        // Select move with randomness
         Move move = select_move_with_randomness(&board, temperature);
 
-        // Make the move
+        // Record the move and make it
+        Board prev_board = board;  // Save a copy of the current board
         make_move(&board, &move);
 
-        // Validate board state after making the move
-        validate_self_play_board_state(&board, move_num + 1);
+        // Record position with the move that led to it
+        memcpy(&game.positions[game.move_count].board, &board, sizeof(Board));
+        game.positions[game.move_count].evaluation = evaluate_neural(&board);
+        game.positions[game.move_count].last_move = move;
+        game.positions[game.move_count].has_move = true;
+        game.positions[game.move_count].prev_board = prev_board;  // Store the previous board state
+        game.move_count++;
     }
 
     // Restore original evaluation type
@@ -344,23 +267,7 @@ bool generate_td_lambda_dataset(const TDLambdaParams *params) {
         // Debug output: show one game in detail every N games
         if (i % 10 == 0 || params->num_games < 5) {
             printf("\n=== Detailed view of game %d ===\n", i + 1);
-
-            // Create arrays for visualization
-            Board *positions = malloc(games[i].move_count * sizeof(Board));
-            float *evaluations = malloc(games[i].move_count * sizeof(float));
-
-            for (int j = 0; j < games[i].move_count; j++) {
-                positions[j] = games[i].positions[j].board;
-                evaluations[j] = games[i].positions[j].evaluation;
-            }
-
-            // Try both visualization methods
-            print_game_with_evals(positions, evaluations, games[i].move_count);
-            printf("\n=== Alternative view (all positions) ===\n");
-            print_positions_with_evals(positions, evaluations, games[i].move_count);
-
-            free(positions);
-            free(evaluations);
+            print_game_with_recorded_moves(games[i].positions, games[i].move_count);
         }
     }
 

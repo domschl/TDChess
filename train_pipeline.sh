@@ -10,11 +10,11 @@ MODEL="./model/chess_model.onnx"
 INITIAL_DATASET="./model/initial_dataset.json"
 
 # Number of iterations to run
-ITERATIONS=5
-TEMPERATURE=1.5
+ITERATIONS=50
+TEMPERATURE=1.2
 
 # Training parameters
-GAMES_PER_ITERATION=20
+GAMES_PER_ITERATION=100
 LAMBDA=0.7
 
 echo "Starting TDChess training pipeline with $ITERATIONS iterations"
@@ -24,7 +24,7 @@ if [ ! -f "$MODEL" ]; then
     echo "No initial model found. Generating classical evaluation dataset..."
     if [ ! -f "$INITIAL_DATASET" ]; then
         echo "Initial dataset not found at $INITIAL_DATASET. Generating initial dataset..."
-        ./build/TDChess generate-dataset "$INITIAL_DATASET" 5000 4
+        ./build/TDChess generate-dataset "$INITIAL_DATASET" 10000 4
     fi
     echo "Training initial model..."
     python train_neural.py --dataset "$INITIAL_DATASET" --output "$MODEL" --epochs 100 --batch-size 128
