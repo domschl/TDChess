@@ -10,6 +10,7 @@
 #include "neural.h"
 #include "python_binding.h"
 #include "td_learning.h"
+#include "visualization.h"
 
 // Add this function declaration at the top of the file with other function declarations
 
@@ -102,7 +103,7 @@ void interactive_mode() {
     char input[10];
     while (1) {
         // Print the board
-        print_board(&board);
+        print_board_pretty(&board);
 
         // Show available moves
         MoveList list;
@@ -153,7 +154,7 @@ void test_evaluation(void) {
     setup_default_position(&board);
 
     printf("Evaluating starting position:\n");
-    print_board(&board);
+    print_board_pretty(&board);
 
     float eval = evaluate_basic(&board);
     printf("Evaluation: %.2f\n", eval);
@@ -176,7 +177,7 @@ void test_evaluation(void) {
     make_move(&board, &e4);
 
     printf("\nAfter 1. e4:\n");
-    print_board(&board);
+    print_board_pretty(&board);
 
     eval = evaluate_basic(&board);
     printf("Evaluation: %.2f\n", eval);
@@ -192,7 +193,7 @@ void play_against_computer(int depth) {
     printf("Enter 'quit' to exit\n\n");
 
     while (1) {
-        print_board(&board);
+        print_board_pretty(&board);
         printf("\nEvaluation: %.2f\n", evaluate_basic(&board));
 
         // Generate legal moves
@@ -331,7 +332,7 @@ void cmd_test_neural_model(const char *model_path) {
     // Position 1: Starting position
     setup_default_position(&board);
     printf("Evaluating starting position:\n");
-    print_board(&board);
+    print_board_pretty(&board);
     test_neural_evaluation(&board);  // Use the function from neural.h
     printf("\n");
 
@@ -352,7 +353,7 @@ void cmd_test_neural_model(const char *model_path) {
         .old_halfmove_clock = 0};
     make_move(&board, &e4);
     printf("Evaluating position 1:\n");
-    print_board(&board);
+    print_board_pretty(&board);
     test_neural_evaluation(&board);
     printf("\n");
 
@@ -372,7 +373,7 @@ void cmd_test_neural_model(const char *model_path) {
         .old_halfmove_clock = 0};
     make_move(&board, &e5);
     printf("Evaluating position 2:\n");
-    print_board(&board);
+    print_board_pretty(&board);
     test_neural_evaluation(&board);
     printf("\n");
 
@@ -392,7 +393,7 @@ void cmd_test_neural_model(const char *model_path) {
         .old_halfmove_clock = 0};
     make_move(&board, &nf3);
     printf("Evaluating position 3:\n");
-    print_board(&board);
+    print_board_pretty(&board);
     test_neural_evaluation(&board);
     printf("\n");
 

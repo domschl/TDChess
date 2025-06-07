@@ -62,7 +62,6 @@ bool parse_fen(Board *board, const char *fen);
 bool board_to_fen(const Board *board, char *buffer, size_t buffer_size);
 
 // Board utility functions
-void print_board(const Board *board);
 Piece get_piece(const Board *board, int square);
 bool is_square_attacked(const Board *board, int square, Color by_side);
 char get_piece_char(Piece piece);
