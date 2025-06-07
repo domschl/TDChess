@@ -237,6 +237,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     plt.ylabel('Loss')
     plt.title('Training and Validation Loss')
     plt.legend()
+    plt.yscale('log')
     plt.savefig(Path(output_model).with_suffix('.png'))
     
     # Export to ONNX
