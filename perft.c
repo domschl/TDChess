@@ -1,6 +1,7 @@
 #include "perft.h"
 #include "board.h"
 #include "movegen.h"
+#include "visualization.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -160,7 +161,7 @@ static const int NUM_PERFT_TESTS = sizeof(perftData) / sizeof(perftData[0]);
 // Add a debug function to the main.c file to help diagnose issues
 void debug_board(Board *board) {
     printf("Board state:\n");
-    print_board(board);
+    print_board_pretty(board);
 
     printf("\nBitboard occupancy:\n");
     printf("White: %016llx\n", (unsigned long long)board->occupied[WHITE]);

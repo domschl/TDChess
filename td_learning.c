@@ -278,7 +278,7 @@ bool export_td_lambda_dataset(Game *games, int num_games, const TDLambdaParams *
     float *td_targets = (float *)malloc(total_positions * sizeof(float));
 
     if (!positions || !td_targets) {
-        printf("Failed to allocate memory for TD dataset\n");
+        printf("Failed to allocate memory for dataset arrays\n");
         if (positions) free(positions);
         if (td_targets) free(td_targets);
         return false;
@@ -288,42 +288,51 @@ bool export_td_lambda_dataset(Game *games, int num_games, const TDLambdaParams *
     int pos_index = 0;
     for (int game_idx = 0; game_idx < num_games; game_idx++) {
         Game *game = &games[game_idx];
+        if (game->move_count == 0) continue;
 
-        // Calculate TD targets for this game
         for (int move = 0; move < game->move_count; move++) {
-            // Copy the position
             memcpy(&positions[pos_index], &game->positions[move].board, sizeof(Board));
 
-            // Calculate TD target using the lambda parameter
             float td_target = 0.0f;
             float lambda_power = 1.0f;
-            float normalization = 0.0f;
+            float normalization = 0.0f; // To normalize weights if game ends early
 
             // Look ahead up to the end of the game
             for (int future = move + 1; future < game->move_count; future++) {
-                // int _steps = future - move;  // Calculates temporal distance
-                lambda_power *= params->lambda;
+                // V(s_t+k+1)
+                float future_eval = game->positions[future].evaluation; // This is from s_future's perspective
 
-                // Add this future evaluation to our target, weighted by lambda
-                float future_eval = game->positions[future].evaluation;
+                // Adjust future_eval to be from White's perspective
+                // game->positions[future].evaluation is from the perspective of game->positions[future].board.side_to_move
+                // If it was Black's turn at s_future, future_eval is good for Black. Negate for White's view.
+                if (game->positions[future].board.side_to_move == BLACK) {
+                    future_eval = -future_eval;
+                }
+                // Now future_eval is from White's perspective
+
+                lambda_power *= params->lambda;
                 td_target += lambda_power * future_eval;
                 normalization += lambda_power;
             }
 
             // Add the final game result with remaining lambda weight
+            // game->game_result is already from White's perspective (+1 White win, -1 Black win, 0 Draw)
             lambda_power *= params->lambda;
-            td_target += lambda_power * game->game_result * 100.0f;  // Scale result to centipawns
+            td_target += lambda_power * game->game_result * 100.0f; // Scale game result like evaluations
             normalization += lambda_power;
 
-            // Normalize the target
-            if (normalization > 0.0f) {
-                td_target /= normalization;
+            if (normalization > 0) {
+                td_targets[pos_index] = td_target / normalization;
             } else {
-                td_target = game->positions[move].evaluation;
+                // Should only happen if lambda is 0 and it's the last state, or no future states.
+                // In this case, the target is just the game result.
+                td_targets[pos_index] = game->game_result * 100.0f;
             }
+            
+            // Clip the target to be within [-100, 100] as expected by the training script (after it divides by 100)
+            if (td_targets[pos_index] > 100.0f) td_targets[pos_index] = 100.0f;
+            if (td_targets[pos_index] < -100.0f) td_targets[pos_index] = -100.0f;
 
-            // Store the TD target
-            td_targets[pos_index] = td_target;
             pos_index++;
         }
     }

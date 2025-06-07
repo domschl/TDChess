@@ -234,7 +234,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     plt.plot(train_losses, label='Training Loss')
     plt.plot(val_losses, label='Validation Loss')
     plt.xlabel('Epochs')
-    plt.ylabel('Loss')
+    plt.ylabel('log(Loss)')
     plt.title('Training and Validation Loss')
     plt.legend()
     plt.yscale('log')

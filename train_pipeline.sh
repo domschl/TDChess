@@ -6,15 +6,16 @@ if [ ! -d "./model" ]; then
 fi
 
 # Initial model
-MODEL="./model/chess_model.onnx"
+MODEL="./model/chess_model_iter_35.onnx"
 INITIAL_DATASET="./model/initial_dataset.json"
 
 # Number of iterations to run
 ITERATIONS=50
+START_ITERATION=36
 TEMPERATURE=0.7
 
 # Training parameters
-GAMES_PER_ITERATION=100
+GAMES_PER_ITERATION=250
 LAMBDA=0.7
 LEARNING_RATE=0.0001
 
@@ -32,7 +33,7 @@ if [ ! -f "$MODEL" ]; then
 fi
 
 # Iterative training
-for ((i=1; i<=$ITERATIONS; i++)); do
+for ((i=$START_ITERATION; i<=$ITERATIONS; i++)); do
     echo "--- Iteration $i of $ITERATIONS ---"
     
     # Output model for this iteration

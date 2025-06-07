@@ -1,3 +1,4 @@
 build/
 model/
 compile_commands.json
+.DS_Store

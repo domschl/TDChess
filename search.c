@@ -10,9 +10,9 @@
 // Fix quiescence search to prevent endless loops and improve tactical evaluation
 
 // Add a maximum quiescence depth constant
-#define MAX_QUIESCENCE_DEPTH 8
+#define MAX_QUIESCENCE_DEPTH 16
 #define MAX_QUIESCENCE_NODES 10000
-#define DELTA_PRUNING_MARGIN 200 // Value in centipawns (e.g., 200 for 2 pawns)
+#define DELTA_PRUNING_MARGIN 200  // Value in centipawns (e.g., 200 for 2 pawns)
 
 // Check if time for search has elapsed
 /*
@@ -180,8 +180,8 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
         //    has stabilized enough to rely on the static evaluation.
         if (!in_check && !moves.moves[i].capture) {
             // Check if this non-capture move gives a check to the opponent
-            Board after_move_board = *board; // Create a temporary board copy
-            make_move(&after_move_board, &(moves.moves[i])); // Make the move on the temporary board
+            Board after_move_board = *board;                  // Create a temporary board copy
+            make_move(&after_move_board, &(moves.moves[i]));  // Make the move on the temporary board
 
             // Find the king of the player whose turn it is *after* this move
             int opponent_king_square = -1;
@@ -231,20 +231,30 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
             PieceType victim_type = board->pieces[moves.moves[i].to].type;
             // Ensure victim_type is valid and not EMPTY.
             // (A well-formed capture move should always target a non-empty square)
-            if (victim_type != EMPTY) { // Check against EMPTY from board.h (assuming PieceType enum)
+            if (victim_type != EMPTY) {  // Check against EMPTY from board.h (assuming PieceType enum)
                 int captured_piece_value = 0;
                 switch (victim_type) {
-                    case PAWN: captured_piece_value = PAWN_VALUE; break;
-                    case KNIGHT: captured_piece_value = KNIGHT_VALUE; break;
-                    case BISHOP: captured_piece_value = BISHOP_VALUE; break;
-                    case ROOK: captured_piece_value = ROOK_VALUE; break;
-                    case QUEEN: captured_piece_value = QUEEN_VALUE; break;
-                    case KING:  // Kings should not be capturable in a way that reaches here in quiescence,
-                                // but handle for completeness to avoid warnings.
-                    case EMPTY: // Should not happen for a victim piece in a capture move.
-                    default:    // Catch any other unexpected piece types.
-                        captured_piece_value = 0; // Assign 0 for safety / to prevent uninitialized use.
-                        break;
+                case PAWN:
+                    captured_piece_value = PAWN_VALUE;
+                    break;
+                case KNIGHT:
+                    captured_piece_value = KNIGHT_VALUE;
+                    break;
+                case BISHOP:
+                    captured_piece_value = BISHOP_VALUE;
+                    break;
+                case ROOK:
+                    captured_piece_value = ROOK_VALUE;
+                    break;
+                case QUEEN:
+                    captured_piece_value = QUEEN_VALUE;
+                    break;
+                case KING:                     // Kings should not be capturable in a way that reaches here in quiescence,
+                                               // but handle for completeness to avoid warnings.
+                case EMPTY:                    // Should not happen for a victim piece in a capture move.
+                default:                       // Catch any other unexpected piece types.
+                    captured_piece_value = 0;  // Assign 0 for safety / to prevent uninitialized use.
+                    break;
                 }
 
                 if (stand_pat + captured_piece_value + DELTA_PRUNING_MARGIN < alpha) {

@@ -1,5 +1,6 @@
 #include "eval.h"
 #include "movegen.h"
+#include "visualization.h"
 #include <stdio.h>
 
 // Global evaluation type
@@ -42,7 +43,7 @@ bool is_quiet_basic(const Board *board) {
     // Check if there are any captures available
     MoveList captures;
     generate_captures(board, &captures);
-    
+
     // Check if in check
     int king_square = -1;
     for (int sq = 0; sq < 64; sq++) {
@@ -51,10 +52,10 @@ bool is_quiet_basic(const Board *board) {
             break;
         }
     }
-    
-    bool in_check = (king_square != -1) && 
+
+    bool in_check = (king_square != -1) &&
                     is_square_attacked(board, king_square, !board->side_to_move);
-    
+
     // A position is quiet if there are no captures and not in check
     return captures.count == 0 && !in_check;
 }
@@ -67,7 +68,7 @@ bool is_quiet_neural(const Board *board) {
 // Print detailed evaluation information for debugging
 void print_evaluation_details(const Board *board) {
     printf("Evaluation details for position:\n");
-    print_board(board);
+    print_board_pretty(board);
 
     float score = evaluate_position(board);
     bool is_quiet = is_position_quiet(board);
