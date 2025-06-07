@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
-#include <float.h>
+#include <float.h> // For FLT_MAX
 
 // Fix quiescence search to prevent endless loops and improve tactical evaluation
 
@@ -23,266 +23,130 @@ static bool time_up(clock_t start_time, int time_limit_ms) {
 }
 */
 
+// Define these if not available from a shared header, ensure consistency (values in centipawns)
+#define CHECKMATE_SCORE_Q (-10000.0f) // Score for the player being checkmated in Q-search
+#ifndef PAWN_VALUE_CP
+#define PAWN_VALUE_CP 100
+#endif
+#ifndef KNIGHT_VALUE_CP
+#define KNIGHT_VALUE_CP 320
+#endif
+#ifndef BISHOP_VALUE_CP
+#define BISHOP_VALUE_CP 330
+#endif
+#ifndef ROOK_VALUE_CP
+#define ROOK_VALUE_CP 500
+#endif
+#ifndef QUEEN_VALUE_CP
+#define QUEEN_VALUE_CP 900
+#endif
+// DELTA_PRUNING_MARGIN should be defined (e.g., 200 centipawns)
+
 // Quiescence search to evaluate tactical positions at the horizon
 float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, int qdepth) {
-    // Increment node counter
     (*nodes)++;
 
-    // Safety check - limit total nodes in quiescence
-    if (*nodes > MAX_QUIESCENCE_NODES) {
-        return evaluate_position(board);
+    // Safety break for excessive nodes
+    if (*nodes >= MAX_QUIESCENCE_NODES) {
+        float eval_white_view = evaluate_position(board);
+        return (board->side_to_move == WHITE) ? eval_white_view : -eval_white_view;
     }
 
-    // Check if position is already quiet - if so, we can return the evaluation directly
-    if (is_position_quiet(board)) {
-        return evaluate_position(board);
-    }
+    // Determine if the current player is in check
+    bool in_check = is_square_attacked(board, board->king_pos[board->side_to_move], !board->side_to_move);
 
-    // Get static evaluation first
-    float stand_pat = evaluate_position(board);
+    float stand_pat_current_player = 0.0f; // Will be set if !in_check
 
-    // Pruning opportunity - if we're already doing better than beta, opponent won't allow this position
-    if (stand_pat >= beta) {
-        return beta;
-    }
+    if (!in_check) {
+        // If not in check, evaluate the stand-pat score (current player's perspective)
+        float eval_white_view = evaluate_position(board);
+        stand_pat_current_player = (board->side_to_move == WHITE) ? eval_white_view : -eval_white_view;
 
-    // Update alpha if static evaluation is better
-    if (stand_pat > alpha) {
-        alpha = stand_pat;
-    }
+        // Standard alpha-beta pruning based on stand-pat
+        if (stand_pat_current_player >= beta) {
+            return beta; // Fail-high, opponent won't allow this state
+        }
+        if (stand_pat_current_player > alpha) {
+            alpha = stand_pat_current_player;
+        }
 
-    // Hard depth limit to prevent excessive searching
-    if (qdepth <= 0) {
-        return stand_pat;
-    }
-
-    // Check if in check - if so, we need to generate all moves
-    bool in_check = false;
-    int king_square = -1;
-    for (int sq = 0; sq < 64; sq++) {
-        if (board->pieces[sq].type == KING && board->pieces[sq].color == board->side_to_move) {
-            king_square = sq;
-            break;
+        // If qdepth is exhausted and not in check, we rely on stand-pat (via alpha)
+        if (qdepth <= 0) {
+            return alpha;
         }
     }
+    // If in_check:
+    // - Stand-pat score is not used for alpha/beta updates here because a move is forced.
+    // - qdepth <= 0 does not cause an immediate return; we must try to find an evasion.
+    //   The qdepth will limit the depth of the evasion search recursively.
 
-    if (king_square != -1) {
-        in_check = is_square_attacked(board, king_square, !board->side_to_move);
-    }
-
-    // Generate moves - either all legal moves if in check, or just captures
     MoveList moves;
     if (in_check) {
-        generate_legal_moves(board, &moves);
+        generate_legal_moves(board, &moves); // Generate all legal moves to get out of check
     } else {
-        generate_captures(board, &moves);
+        generate_captures(board, &moves);    // Generate only captures if not in check
     }
 
-    // No moves means either checkmate or stalemate if in check, otherwise just a quiet position
+    // Handle terminal nodes (checkmate or stalemate-like quiet positions)
     if (moves.count == 0) {
         if (in_check) {
-            return -1000.0f;  // Checkmate
+            return CHECKMATE_SCORE_Q; // Checkmated (score for current player being mated)
+        } else {
+            // Not in check, and no captures were generated.
+            // Alpha (possibly updated by stand_pat) is the best score.
+            return alpha;
         }
-        return stand_pat;
     }
 
-    // Simple move ordering - sort captures by MVV-LVA (Most Valuable Victim - Least Valuable Aggressor)
-    // This is a basic implementation - just estimate the value of the capture
+    // Move ordering: Score all generated moves.
+    // This function should ideally prioritize good captures or effective check evasions.
+    score_moves(board, &moves);
+
     for (int i = 0; i < moves.count; i++) {
-        moves.scores[i] = 0;
+        sort_moves(&moves, i); // Iteratively pick the best remaining move
+        Move current_move = moves.moves[i];
 
-        // If it's a capture, score by victim value - attacker value
-        if (moves.moves[i].capture) {
-            int victim_square = moves.moves[i].to;
-            int attacker_square = moves.moves[i].from;
-
-            PieceType victim_type = board->pieces[victim_square].type;
-            PieceType attacker_type = board->pieces[attacker_square].type;
-
-            // Get values
-            int victim_value = 0;
-            int attacker_value = 0;
-
-            switch (victim_type) {
-            case PAWN:
-                victim_value = PAWN_VALUE;
-                break;
-            case KNIGHT:
-                victim_value = KNIGHT_VALUE;
-                break;
-            case BISHOP:
-                victim_value = BISHOP_VALUE;
-                break;
-            case ROOK:
-                victim_value = ROOK_VALUE;
-                break;
-            case QUEEN:
-                victim_value = QUEEN_VALUE;
-                break;
-            default:
-                break;
+        // Delta Pruning: Apply only if NOT in check and the move is a capture.
+        if (!in_check && current_move.capture) {
+            // Determine the value of the captured piece
+            int victim_sq = current_move.to;
+            if (current_move.en_passant) {
+                // For en passant, the captured pawn is "behind" the 'to' square from the mover's perspective
+                victim_sq = current_move.to + (board->side_to_move == WHITE ? -8 : 8);
             }
+            Piece victim_piece_struct = board->pieces[victim_sq];
 
-            switch (attacker_type) {
-            case PAWN:
-                attacker_value = PAWN_VALUE;
-                break;
-            case KNIGHT:
-                attacker_value = KNIGHT_VALUE;
-                break;
-            case BISHOP:
-                attacker_value = BISHOP_VALUE;
-                break;
-            case ROOK:
-                attacker_value = ROOK_VALUE;
-                break;
-            case QUEEN:
-                attacker_value = QUEEN_VALUE;
-                break;
-            default:
-                break;
-            }
+            if (victim_piece_struct.type != EMPTY) { // Should be true for valid captures
+                const int piece_values_cp[7] = {0, PAWN_VALUE_CP, KNIGHT_VALUE_CP, BISHOP_VALUE_CP, ROOK_VALUE_CP, QUEEN_VALUE_CP, 0}; // King not capturable
+                int captured_piece_value_cp = piece_values_cp[victim_piece_struct.type];
 
-            moves.scores[i] = victim_value - attacker_value / 10;
-        }
-    }
+                // Convert values to pawn units for comparison with alpha (which is in pawn units)
+                float captured_piece_pawn_units = (float)captured_piece_value_cp / 100.0f;
+                float delta_margin_pawn_units = (float)DELTA_PRUNING_MARGIN / 100.0f; // DELTA_PRUNING_MARGIN is in centipawns
 
-    // Simple insertion sort for move ordering
-    for (int i = 1; i < moves.count; i++) {
-        Move temp_move = moves.moves[i];
-        int temp_score = moves.scores[i];
-        int j = i - 1;
-
-        while (j >= 0 && moves.scores[j] < temp_score) {
-            moves.moves[j + 1] = moves.moves[j];
-            moves.scores[j + 1] = moves.scores[j];
-            j--;
-        }
-
-        moves.moves[j + 1] = temp_move;
-        moves.scores[j + 1] = temp_score;
-    }
-
-    // Try each move
-    for (int i = 0; i < moves.count; i++) {
-        // --- Non-Capture Move Handling in Quiescence ---
-        // When not in check, non-capture moves are handled specially:
-        // 1. Checking Moves: Non-capture moves that deliver a check to the opponent are
-        //    explored further into the quiescence search. This is important for tactical
-        //    sequences that might involve a quiet setup move leading to a forced mate or
-        //    material gain via a check.
-        // 2. Quiet Moves at Horizon (qdepth == MAX_QUIESCENCE_DEPTH): Non-capture, non-checking
-        //    moves are only considered if we are at the very first ply of the quiescence search.
-        //    This allows for the possibility that the position is not truly quiet and a
-        //    tactical sequence might start with a non-capture.
-        // 3. Quiet Moves Deeper: Non-capture, non-checking moves beyond the first ply are pruned.
-        //    The assumption is that if no captures or checks are promising, the position
-        //    has stabilized enough to rely on the static evaluation.
-        if (!in_check && !moves.moves[i].capture) {
-            // Check if this non-capture move gives a check to the opponent
-            Board after_move_board = *board;                  // Create a temporary board copy
-            make_move(&after_move_board, &(moves.moves[i]));  // Make the move on the temporary board
-
-            // Find the king of the player whose turn it is *after* this move
-            int opponent_king_square = -1;
-            for (int sq = 0; sq < 64; sq++) {
-                // after_move_board.side_to_move is the opponent's color now
-                if (after_move_board.pieces[sq].type == KING && after_move_board.pieces[sq].color == after_move_board.side_to_move) {
-                    opponent_king_square = sq;
-                    break;
-                }
-            }
-
-            bool is_check_move = false;
-            if (opponent_king_square != -1) {
-                // Check if the opponent's king is attacked by the current player (original board->side_to_move)
-                is_check_move = is_square_attacked(&after_move_board, opponent_king_square, board->side_to_move);
-            }
-
-            if (!is_check_move && qdepth < MAX_QUIESCENCE_DEPTH) {
-                // If it's NOT a checking move AND we are beyond the first quiescence ply, skip it.
-                // Checking moves are allowed deeper.
-                // All non-captures are allowed at the first ply (qdepth == MAX_QUIESCENCE_DEPTH).
-                continue;
-            }
-        }
-
-        // --- Delta Pruning ---
-        // Delta pruning is a technique used in quiescence search to avoid exploring
-        // captures that are very unlikely to improve the current player's position
-        // significantly enough to raise alpha (the lower bound of the search window).
-        //
-        // The logic is as follows:
-        // - `stand_pat`: The static evaluation of the current board position *before* making the capture.
-        // - `captured_piece_value`: The material value of the piece being captured.
-        // - `DELTA_PRUNING_MARGIN`: A safety margin.
-        //
-        // If `stand_pat + captured_piece_value + DELTA_PRUNING_MARGIN < alpha`,
-        // it means that even if we make this capture, and add a safety margin,
-        // the resulting evaluation is still worse than what we are already guaranteed (alpha).
-        // Therefore, this capture is unlikely to be part of the best line of play,
-        // and we can prune (skip) searching it further.
-        // This is particularly effective at cutting down searches of sequences where,
-        // for example, the engine is losing and tries a series of minor captures that
-        // don't actually change the outcome.
-        //
-        // This check is only applied to capture moves.
-        if (moves.moves[i].capture) {
-            PieceType victim_type = board->pieces[moves.moves[i].to].type;
-            // Ensure victim_type is valid and not EMPTY.
-            // (A well-formed capture move should always target a non-empty square)
-            if (victim_type != EMPTY) {  // Check against EMPTY from board.h (assuming PieceType enum)
-                int captured_piece_value = 0;
-                switch (victim_type) {
-                case PAWN:
-                    captured_piece_value = PAWN_VALUE;
-                    break;
-                case KNIGHT:
-                    captured_piece_value = KNIGHT_VALUE;
-                    break;
-                case BISHOP:
-                    captured_piece_value = BISHOP_VALUE;
-                    break;
-                case ROOK:
-                    captured_piece_value = ROOK_VALUE;
-                    break;
-                case QUEEN:
-                    captured_piece_value = QUEEN_VALUE;
-                    break;
-                case KING:                     // Kings should not be capturable in a way that reaches here in quiescence,
-                                               // but handle for completeness to avoid warnings.
-                case EMPTY:                    // Should not happen for a victim piece in a capture move.
-                default:                       // Catch any other unexpected piece types.
-                    captured_piece_value = 0;  // Assign 0 for safety / to prevent uninitialized use.
-                    break;
-                }
-
-                if (stand_pat + captured_piece_value + DELTA_PRUNING_MARGIN < alpha) {
-                    // If the improvement from this capture is still too low to raise alpha,
-                    // then skip this move.
-                    continue;
+                // Use stand_pat_current_player calculated at the start of this function (when !in_check)
+                if (stand_pat_current_player + captured_piece_pawn_units + delta_margin_pawn_units < alpha) {
+                    continue; // Prune this move; it's unlikely to raise alpha
                 }
             }
         }
 
-        Board new_board = *board;
-        make_move(&new_board, &(moves.moves[i]));
+        Board new_board = *board; // Create a copy to make the move on
+        make_move(&new_board, &current_move);
 
-        // Recursive search with negation (negamax)
+        // Recursive call for the next state.
+        // qdepth is decremented, limiting the search depth of tactical sequences/evasions.
         float score = -quiescence_search(&new_board, -beta, -alpha, nodes, qdepth - 1);
 
-        // Update alpha
+        // Standard Negamax updates
+        if (score >= beta) {
+            return beta; // Fail-high (cutoff)
+        }
         if (score > alpha) {
             alpha = score;
         }
-
-        // Alpha-beta pruning
-        if (alpha >= beta) {
-            return beta;
-        }
     }
-
-    return alpha;
+    return alpha; // Return the best score found for the current player
 }
 
 // Alpha-beta search implementation
@@ -294,9 +158,12 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     if (depth <= 0) {
         // Check if position is quiet
         if (is_position_quiet(board)) {
-            return evaluate_position(board);
+            float eval_white_view = evaluate_position(board);
+            // Convert to current player's perspective for Negamax
+            return (board->side_to_move == WHITE) ? eval_white_view : -eval_white_view;
         } else {
             // Call quiescence search for tactical positions
+            // quiescence_search will also return from its current player's perspective
             return quiescence_search(board, alpha, beta, nodes, MAX_QUIESCENCE_DEPTH);
         }
     }
@@ -503,16 +370,15 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) 
     *nodes = 0;
 
     // Set initial alpha and beta values
-    float alpha = -INFINITY;
-    float beta = INFINITY;
+    float alpha = -INFINITY; // Use INFINITY from float.h if available, or a very large number
+    float beta = INFINITY;   // Use INFINITY from float.h
 
     // Generate all legal moves
     MoveList moves;
     generate_legal_moves(board, &moves);
 
-    // If no legal moves, return worst score
+    // If no legal moves, return score from current player's perspective
     if (moves.count == 0) {
-        // Check if king is in check (checkmate) or not (stalemate)
         int king_square = -1;
         for (int sq = 0; sq < 64; sq++) {
             if (board->pieces[sq].type == KING && board->pieces[sq].color == board->side_to_move) {
@@ -520,66 +386,47 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) 
                 break;
             }
         }
-
         if (king_square != -1 && is_square_attacked(board, king_square, !board->side_to_move)) {
-            return -1000.0f;  // Checkmate
+            return -1000.0f;  // Checkmate (score for current player)
         } else {
-            return 0.0f;  // Stalemate (draw)
+            return 0.0f;  // Stalemate (score for current player)
         }
     }
 
-    // If only one legal move, return it immediately
-    if (moves.count == 1) {
-        *best_move = moves.moves[0];
-
-        // Make the move to get its score
-        make_move(board, best_move);
-        float score = -evaluate_position(board);
-        unmake_move(board, *best_move);
-
-        return score;
-    }
-
     // Score moves for initial ordering
-    score_moves(board, &moves);
+    score_moves(board, &moves); // Ensure score_moves is robust
 
     // Initialize best score and move
-    float best_score = -INFINITY;
+    float best_score_for_root_player = -INFINITY; // Or -FLT_MAX
     *best_move = moves.moves[0];  // Default to first move
 
     // Search each move
     for (int i = 0; i < moves.count; i++) {
-        // Order moves by score
+        // Order moves by score (iteratively brings best to current 'i')
         sort_moves(&moves, i);
 
-        // Make the move
-        Move move = moves.moves[i];
-        make_move(board, &move);
+        Move current_move_to_try = moves.moves[i]; // Use a distinct variable for clarity
+        make_move(board, &current_move_to_try);
 
         // Search from opponent's perspective
-        float score = -alpha_beta(board, depth - 1, -beta, -alpha, nodes);
+        float score_from_opponent = alpha_beta(board, depth - 1, -beta, -alpha, nodes);
+        float score_for_current_player = -score_from_opponent;
 
-        // Unmake the move
-        unmake_move(board, move);
+        unmake_move(board, current_move_to_try);
 
-        // Update best score and move if this move is better
-        if (score > best_score) {
-            best_score = score;
-            *best_move = move;
+        if (score_for_current_player > best_score_for_root_player) {
+            best_score_for_root_player = score_for_current_player;
+            *best_move = current_move_to_try;
 
-            // Update alpha for alpha-beta pruning
-            if (score > alpha) {
-                alpha = score;
+            if (best_score_for_root_player > alpha) {
+                alpha = best_score_for_root_player;
             }
         }
+        // No beta check needed at the absolute root if we want to find the true best move
+        // and not just one that's "good enough" for a previous search iteration.
+        // If this were part of iterative deepening, a beta check (if alpha >= beta) break; would be here.
     }
-
-    // Ensure we've set a best move
-    if (best_move->from == 0 && best_move->to == 0) {
-        *best_move = moves.moves[0];  // Fall back to first move
-    }
-
-    return best_score;
+    return best_score_for_root_player;
 }
 
 // Add implementations of the missing functions

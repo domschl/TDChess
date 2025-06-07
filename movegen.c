@@ -480,50 +480,6 @@ void generate_king_moves(const Board *board, MoveList *list) {
         }
     }
 }
-// Implementation of update_castling_rights and update_bitboards functions
-
-/**
- * Updates the castling rights based on king and rook movements
- *
- * @param board The board structure
- * @param from Source square of the move
- * @param to Destination square of the move
- */
-static void update_castling_rights(Board *board, int from, int to) {
-    // If no castling rights remain, return early
-    if (board->castle_rights == 0) {
-        return;
-    }
-
-    // Check if a king moved
-    if (board->pieces[to].type == KING) {
-        if (board->pieces[to].color == WHITE) {
-            // White king moved, remove white castling rights
-            board->castle_rights &= ~(CASTLE_WHITE_KINGSIDE | CASTLE_WHITE_QUEENSIDE);
-        } else {
-            // Black king moved, remove black castling rights
-            board->castle_rights &= ~(CASTLE_BLACK_KINGSIDE | CASTLE_BLACK_QUEENSIDE);
-        }
-    }
-
-    // Check if a rook moved or was captured
-    // White kingside rook
-    if (from == H1 || to == H1) {
-        board->castle_rights &= ~CASTLE_WHITE_KINGSIDE;
-    }
-    // White queenside rook
-    if (from == A1 || to == A1) {
-        board->castle_rights &= ~CASTLE_WHITE_QUEENSIDE;
-    }
-    // Black kingside rook
-    if (from == H8 || to == H8) {
-        board->castle_rights &= ~CASTLE_BLACK_KINGSIDE;
-    }
-    // Black queenside rook
-    if (from == A8 || to == A8) {
-        board->castle_rights &= ~CASTLE_BLACK_QUEENSIDE;
-    }
-}
 
 /**
  * Updates all bitboards to match the piece array
@@ -573,12 +529,12 @@ bool make_move(Board *board, Move *move) {
     if (move->capture) {
         if (move->en_passant) {
             // For en passant, the captured piece is a pawn on a different square
-            int captured_square = (board->side_to_move == WHITE) ? (move->to - 8) : (move->to + 8);
-            move->captured_piece_type = PAWN;
+            // The actual square of the captured pawn is move->captured_piece_square
+            move->captured_piece_type = PAWN;  // The piece type is always PAWN
             move->captured_piece_color = (board->side_to_move == WHITE) ? BLACK : WHITE;
 
-            // Clear the captured pawn
-            board->pieces[captured_square].type = EMPTY;
+            // Clear the captured pawn from the board
+            board->pieces[move->captured_piece_square].type = EMPTY;
         } else {
             // Normal capture - store the captured piece information
             move->captured_piece_type = board->pieces[move->to].type;
@@ -589,9 +545,14 @@ bool make_move(Board *board, Move *move) {
         move->captured_piece_type = EMPTY;
     }
 
-    // Move the piece
-    board->pieces[move->to] = board->pieces[move->from];
+    // Move the piece on the board
+    board->pieces[move->to] = moving_piece;
     board->pieces[move->from].type = EMPTY;
+
+    // Update king position if a king moved
+    if (moving_piece.type == KING) {
+        board->king_pos[moving_piece.color] = move->to;
+    }
 
     // Handle promotion
     if (move->promotion != EMPTY) {
@@ -600,24 +561,20 @@ bool make_move(Board *board, Move *move) {
 
     // Handle castling
     if (move->castling) {
-        // Get rook positions based on king's move
+        // King has already been moved to move->to and king_pos updated.
+        // Now move the rook.
         int rook_from = 0, rook_to = 0;
 
-        // Determine rook squares based on the king's move
-        if (move->from == E1 && move->to == G1) {
-            // White kingside
+        if (move->to == G1) {  // White kingside (king moved E1->G1)
             rook_from = H1;
             rook_to = F1;
-        } else if (move->from == E1 && move->to == C1) {
-            // White queenside
+        } else if (move->to == C1) {  // White queenside (king moved E1->C1)
             rook_from = A1;
             rook_to = D1;
-        } else if (move->from == E8 && move->to == G8) {
-            // Black kingside
+        } else if (move->to == G8) {  // Black kingside (king moved E8->G8)
             rook_from = H8;
             rook_to = F8;
-        } else if (move->from == E8 && move->to == C8) {
-            // Black queenside
+        } else if (move->to == C8) {  // Black queenside (king moved E8->C8)
             rook_from = A8;
             rook_to = D8;
         }
@@ -628,7 +585,30 @@ bool make_move(Board *board, Move *move) {
     }
 
     // Update castling rights
-    update_castling_rights(board, move->from, move->to);
+    // This needs to consider the original position of the piece (move->from)
+    // if it was a king or rook, or the destination (move->to) if a rook was captured there.
+    // int original_castle_rights = board->castle_rights;
+
+    if (moving_piece.type == KING) {
+        if (moving_piece.color == WHITE) {
+            board->castle_rights &= ~(CASTLE_WHITE_KINGSIDE | CASTLE_WHITE_QUEENSIDE);
+        } else {
+            board->castle_rights &= ~(CASTLE_BLACK_KINGSIDE | CASTLE_BLACK_QUEENSIDE);
+        }
+    }
+    // Check if a rook moved from its starting square
+    if (move->from == H1) board->castle_rights &= ~CASTLE_WHITE_KINGSIDE;
+    if (move->from == A1) board->castle_rights &= ~CASTLE_WHITE_QUEENSIDE;
+    if (move->from == H8) board->castle_rights &= ~CASTLE_BLACK_KINGSIDE;
+    if (move->from == A8) board->castle_rights &= ~CASTLE_BLACK_QUEENSIDE;
+
+    // Check if a rook was captured on its starting square
+    if (move->capture && !move->en_passant) {  // en_passant capture is handled separately for piece type
+        if (move->to == H1 && move->captured_piece_type == ROOK && move->captured_piece_color == WHITE) board->castle_rights &= ~CASTLE_WHITE_KINGSIDE;
+        if (move->to == A1 && move->captured_piece_type == ROOK && move->captured_piece_color == WHITE) board->castle_rights &= ~CASTLE_WHITE_QUEENSIDE;
+        if (move->to == H8 && move->captured_piece_type == ROOK && move->captured_piece_color == BLACK) board->castle_rights &= ~CASTLE_BLACK_KINGSIDE;
+        if (move->to == A8 && move->captured_piece_type == ROOK && move->captured_piece_color == BLACK) board->castle_rights &= ~CASTLE_BLACK_QUEENSIDE;
+    }
 
     // Update the en passant square
     if (moving_piece.type == PAWN && abs(move->to - move->from) == 16) {
@@ -1072,83 +1052,74 @@ void unmake_move(Board *board, Move move) {
     // Switch side to move back
     board->side_to_move = (board->side_to_move == WHITE) ? BLACK : WHITE;
 
-    // If it was black's move, decrement the full move counter
+    // If it was black's move (now white to move after switching back), decrement the full move counter
     if (board->side_to_move == WHITE) {
         board->fullmove_number--;
     }
 
-    // Handle castling
+    // Get the piece that was moved (it's currently at move.to)
+    Piece moved_piece = board->pieces[move.to];
+
+    // Handle promotion - change piece type back to PAWN before moving it
+    if (move.promotion != EMPTY) {
+        moved_piece.type = PAWN;
+    }
+
+    // Move the piece back to its original square
+    board->pieces[move.from] = moved_piece;
+    // The destination square (move.to) will be correctly set below (either empty or restored captured piece)
+
+    // Update king position if a king was moved
+    if (moved_piece.type == KING) {
+        board->king_pos[moved_piece.color] = move.from;
+    }
+
+    // Handle castling (king and rook movements)
     if (move.castling) {
-        // Get rook positions based on king's move
-        int rook_from = 0, rook_to = 0;
+        // King has been moved back to move.from and king_pos updated.
+        // Now move the rook back.
+        int rook_original_from = 0, rook_original_to = 0;  // original_from is where rook is now, original_to is where it came from
 
-        // Determine rook squares based on the king's move
-        if (move.from == E1 && move.to == G1) {
-            // White kingside
-            rook_from = H1;
-            rook_to = F1;
-            // Move king back
-            board->pieces[E1] = board->pieces[G1];
-            board->pieces[G1].type = EMPTY;
-        } else if (move.from == E1 && move.to == C1) {
-            // White queenside
-            rook_from = A1;
-            rook_to = D1;
-            // Move king back
-            board->pieces[E1] = board->pieces[C1];
-            board->pieces[C1].type = EMPTY;
-        } else if (move.from == E8 && move.to == G8) {
-            // Black kingside
-            rook_from = H8;
-            rook_to = F8;
-            // Move king back
-            board->pieces[E8] = board->pieces[G8];
-            board->pieces[G8].type = EMPTY;
-        } else if (move.from == E8 && move.to == C8) {
-            // Black queenside
-            rook_from = A8;
-            rook_to = D8;
-            // Move king back
-            board->pieces[E8] = board->pieces[C8];
-            board->pieces[C8].type = EMPTY;
+        if (move.to == G1) {  // White kingside (king was E1->G1, rook H1->F1)
+            rook_original_from = F1;
+            rook_original_to = H1;
+        } else if (move.to == C1) {  // White queenside (king E1->C1, rook A1->D1)
+            rook_original_from = D1;
+            rook_original_to = A1;
+        } else if (move.to == G8) {  // Black kingside (king E8->G8, rook H8->F8)
+            rook_original_from = F8;
+            rook_original_to = H8;
+        } else if (move.to == C8) {  // Black queenside (king E8->C8, rook A8->D8)
+            rook_original_from = D8;
+            rook_original_to = A8;
         }
 
-        // Move rook back
-        board->pieces[rook_from] = board->pieces[rook_to];
-        board->pieces[rook_to].type = EMPTY;
-    } else {
-        // Handle non-castling moves
+        // Move the rook back
+        board->pieces[rook_original_to] = board->pieces[rook_original_from];
+        board->pieces[rook_original_from].type = EMPTY;
+        // Clear the square the king moved to during castling (it's now empty or will be set by captured piece logic if it was a capture, though castling isn't a capture)
+        board->pieces[move.to].type = EMPTY;
 
-        // Save moving piece before we overwrite it
-        Piece moving_piece = board->pieces[move.to];
-
-        // Handle promotion - change back to pawn
-        if (move.promotion != EMPTY) {
-            moving_piece.type = PAWN;
-        }
-
+    } else {  // Non-castling moves
         // Restore captured piece or clear destination
         if (move.capture) {
             if (move.en_passant) {
                 // For en passant, restore the captured pawn
-                int captured_square = move.captured_piece_square;
-                board->pieces[captured_square].type = PAWN;
-                board->pieces[captured_square].color = move.captured_piece_color;
+                // The square move.captured_piece_square holds the actual pawn that was captured
+                board->pieces[move.captured_piece_square].type = PAWN;  // It's always a pawn
+                board->pieces[move.captured_piece_square].color = move.captured_piece_color;
 
-                // Clear the capturing pawn's destination
+                // The square the capturing pawn moved to (move.to) should become empty
                 board->pieces[move.to].type = EMPTY;
             } else {
-                // Normal capture - restore the captured piece
+                // Normal capture - restore the captured piece at move.to
                 board->pieces[move.to].type = move.captured_piece_type;
                 board->pieces[move.to].color = move.captured_piece_color;
             }
         } else {
-            // No capture - clear the destination
+            // No capture - the destination square (move.to) becomes empty
             board->pieces[move.to].type = EMPTY;
         }
-
-        // Move piece back to source
-        board->pieces[move.from] = moving_piece;
     }
 
     // Restore preserved state

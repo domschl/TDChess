@@ -47,6 +47,7 @@ typedef struct {
     int en_passant_square;  // Square where en passant capture is possible (or -1)
     int halfmove_clock;     // For fifty-move rule
     int fullmove_number;    // Starting from 1, incremented after Black's move
+    int king_pos[2];        // Stores the square of WHITE_KING and BLACK_KING
 } Board;
 
 // Castling rights bits

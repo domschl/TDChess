@@ -17,14 +17,32 @@ void set_evaluation_type(EvaluationType type) {
 }
 
 // Main evaluation function that dispatches to the appropriate implementation
+// This function will now ALWAYS return the evaluation from White's perspective, in pawn units.
 float evaluate_position(const Board *board) {
+    float score_pawn_units;
+
     switch (current_eval_type) {
     case EVAL_NEURAL:
-        return evaluate_neural(board);
+        // evaluate_neural (from neural.c) is assumed to return a score
+        // from the perspective of board->side_to_move, in pawn units.
+        float nn_score_current_player_perspective = evaluate_neural(board);
+
+        if (board->side_to_move == WHITE) {
+            // If White is to move, the score from current player's perspective is already White's perspective.
+            score_pawn_units = nn_score_current_player_perspective;
+        } else {
+            // If Black is to move, a positive score for current player (Black) is bad for White.
+            // So, negate it to get White's perspective.
+            score_pawn_units = -nn_score_current_player_perspective;
+        }
+        break;
     case EVAL_BASIC:
     default:
-        return evaluate_basic(board);
+        // evaluate_basic will be modified to return score from White's perspective directly, in pawn units.
+        score_pawn_units = evaluate_basic(board);
+        break;
     }
+    return score_pawn_units;
 }
 
 // Main quiescence check function
@@ -225,77 +243,39 @@ static int get_pst_value(int square, PieceType piece, Color color) {
 }
 
 // Basic evaluation function that considers material and piece positioning
+// This function will now return the evaluation from WHITE'S PERSPECTIVE, in pawn units.
 float evaluate_basic(const Board *board) {
-    int material_score = 0;
-    int positional_score = 0;
-    int mobility_score = 0;
-    int threat_score = 0;
+    int material_score_centipawns = 0;
+    int positional_score_centipawns = 0;
 
-    // Evaluate material and position for each piece
-    for (int square = 0; square < 64; square++) {
-        Piece piece = board->pieces[square];
-        if (piece.type == EMPTY) continue;
+    // Piece values in centipawns
+    const int piece_values[7] = {0, 100, 320, 330, 500, 900, 20000}; // EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
 
-        int piece_value = 0;
-        switch (piece.type) {
-        case PAWN:
-            piece_value = PAWN_VALUE;
-            break;
-        case KNIGHT:
-            piece_value = KNIGHT_VALUE;
-            break;
-        case BISHOP:
-            piece_value = BISHOP_VALUE;
-            break;
-        case ROOK:
-            piece_value = ROOK_VALUE;
-            break;
-        case QUEEN:
-            piece_value = QUEEN_VALUE;
-            break;
-        case KING:
-            piece_value = KING_VALUE;
-            break;
-        default:
-            break;
-        }
+    for (int sq = 0; sq < 64; sq++) {
+        Piece piece = board->pieces[sq];
+        if (piece.type != EMPTY) {
+            int value_cp = piece_values[piece.type];
+            // get_pst_value is assumed to return the PST value for the piece at its square,
+            // adjusted for color (e.g., by flipping the square for black pieces and using white's tables),
+            // such that a positive value is good for that piece from White's overall perspective.
+            int pst_val_cp = get_pst_value(sq, piece.type, piece.color);
 
-        // Add or subtract value based on piece color
-        int value_sign = (piece.color == WHITE) ? 1 : -1;
-        material_score += value_sign * piece_value;
-
-        // Add positional bonus/penalty
-        positional_score += value_sign * get_pst_value(square, piece.type, piece.color);
-
-        // Check if piece is under attack
-        if (is_square_attacked(board, square, !piece.color)) {
-            // Piece is under attack - if undefended, penalize heavily
-            if (!is_square_attacked(board, square, piece.color)) {
-                threat_score -= value_sign * (piece_value / 2);
+            if (piece.color == WHITE) {
+                material_score_centipawns += value_cp;
+                positional_score_centipawns += pst_val_cp;
+            } else { // Black piece
+                material_score_centipawns -= value_cp;    // Subtract black's material value from white's score
+                positional_score_centipawns -= pst_val_cp; // Subtract black's positional value (which was from white's view)
             }
         }
     }
 
-    // Add mobility evaluation
-    Board temp_board = *board;
+    int total_score_centipawns = material_score_centipawns + positional_score_centipawns;
 
-    // Count legal moves for current side
-    MoveList current_moves;
-    generate_legal_moves(&temp_board, &current_moves);
-    mobility_score += (board->side_to_move == WHITE ? 1 : -1) * current_moves.count * 5;
+    // Convert to pawn units
+    float score_pawn_units = (float)total_score_centipawns / 100.0f;
 
-    // Count legal moves for opponent
-    temp_board.side_to_move = !board->side_to_move;
-    MoveList opponent_moves;
-    generate_legal_moves(&temp_board, &opponent_moves);
-    mobility_score -= (board->side_to_move == WHITE ? 1 : -1) * opponent_moves.count * 5;
-
-    // Combine all evaluation components
-    int total_score = material_score + positional_score + mobility_score + threat_score;
-
-    // Return evaluation from current side's perspective
-    float normalized_score = total_score / 100.0f;  // Convert to pawn units
-    return (board->side_to_move == WHITE) ? normalized_score : -normalized_score;
+    return score_pawn_units; // This is now always from White's perspective
 }
 
 // Get current evaluation function

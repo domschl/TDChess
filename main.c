@@ -49,7 +49,10 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
 
     // Collect first position
     memcpy(&positions[pos_count], &current_board, sizeof(Board));
-    evaluations[pos_count] = evaluate_position(&current_board);
+    // evaluate_position returns pawn units from current_board.side_to_move's perspective.
+    // For starting position, side_to_move is WHITE.
+    float eval_pawn_units_initial = evaluate_position(&current_board);
+    evaluations[pos_count] = eval_pawn_units_initial * 100.0f; // Convert to centipawns
     pos_count++;
 
     // Play moves and collect positions
@@ -57,18 +60,30 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
     while (pos_count < num_positions) {
         // Search for best move
         Move best_move;
-        float score = find_best_move(&current_board, search_depth, &best_move, &nodes);
+        // score is V(s_t+1) from P_t's perspective (player at s_t), in pawn units
+        float score_pawn_units = find_best_move(&current_board, search_depth, &best_move, &nodes);
 
         // Make the move
-        make_move(&current_board, &best_move);
+        make_move(&current_board, &best_move); // current_board is now s_t+1, side_to_move is P_t+1
 
         // Collect position
         memcpy(&positions[pos_count], &current_board, sizeof(Board));
-        evaluations[pos_count] = -score;  // Negate the score because we switched sides
+
+        // eval_s_t_plus_1_curr_player_pawn_units is V(s_t+1) from P_t+1's perspective, in pawn units
+        float eval_s_t_plus_1_curr_player_pawn_units = -score_pawn_units;
+        
+        float eval_s_t_plus_1_white_perspective_pawn_units;
+        if (current_board.side_to_move == WHITE) { // P_t+1 is White
+            eval_s_t_plus_1_white_perspective_pawn_units = eval_s_t_plus_1_curr_player_pawn_units;
+        } else { // P_t+1 is Black, so negate to get White's perspective
+            eval_s_t_plus_1_white_perspective_pawn_units = -eval_s_t_plus_1_curr_player_pawn_units;
+        }
+        
+        evaluations[pos_count] = eval_s_t_plus_1_white_perspective_pawn_units * 100.0f; // Convert to centipawns
         pos_count++;
 
         // Print progress
-        if (pos_count % 10 == 0) {
+        if (pos_count % 100 == 0) { // Adjusted progress printing
             printf("Generated %d/%d positions\n", pos_count, num_positions);
         }
 
@@ -77,14 +92,21 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
         generate_legal_moves(&current_board, &moves);
         if (moves.count == 0 || current_board.halfmove_clock >= 100) {
             setup_default_position(&current_board);
+            // Optionally, add the new starting position to the dataset if not full
+            if (pos_count < num_positions) {
+                memcpy(&positions[pos_count], &current_board, sizeof(Board));
+                float eval_pawn_units_reset = evaluate_position(&current_board); // From White's perspective
+                evaluations[pos_count] = eval_pawn_units_reset * 100.0f;
+                pos_count++;
+            }
         }
     }
 
     // Export positions to dataset
-    if (!export_positions_to_dataset(filename, positions, evaluations, num_positions)) {
+    if (!export_positions_to_dataset(filename, positions, evaluations, pos_count)) { // Use pos_count
         printf("Failed to export positions to dataset\n");
     } else {
-        printf("Successfully exported %d positions to %s\n", num_positions, filename);
+        printf("Successfully exported %d positions to %s\n", pos_count, filename); // Use pos_count
     }
 
     // Free memory

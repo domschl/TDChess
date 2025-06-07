@@ -9,6 +9,8 @@ void init_board(Board *board) {
     memset(board, 0, sizeof(Board));
     board->en_passant_square = -1;
     board->fullmove_number = 1;
+    board->king_pos[WHITE] = -1; // Initialize king positions to an invalid square
+    board->king_pos[BLACK] = -1;
 }
 
 // Set up the standard chess starting position
@@ -21,27 +23,49 @@ void setup_default_position(Board *board) {
 
     // Parse the FEN string to set up the board
     if (!parse_fen(board, start_fen)) {
-        fprintf(stderr, "Error: Failed to set up default position\n");
+        fprintf(stderr, "Error: Failed to set up default position from FEN. Falling back.\n");
 
         // Fall back to minimal position with just kings
-        init_board(board);
+        init_board(board); // Re-init to clear any partial FEN parse
 
         // Place kings in their starting positions
-        board->pieces[SQUARE(SQUARE_FILE_E, SQUARE_RANK_1)].type = KING;
-        board->pieces[SQUARE(SQUARE_FILE_E, SQUARE_RANK_1)].color = WHITE;
-        board->pieces[SQUARE(SQUARE_FILE_E, SQUARE_RANK_8)].type = KING;
-        board->pieces[SQUARE(SQUARE_FILE_E, SQUARE_RANK_8)].color = BLACK;
+        int white_king_sq = SQUARE(SQUARE_FILE_E, SQUARE_RANK_1);
+        int black_king_sq = SQUARE(SQUARE_FILE_E, SQUARE_RANK_8);
+
+        board->pieces[white_king_sq].type = KING;
+        board->pieces[white_king_sq].color = WHITE;
+        board->king_pos[WHITE] = white_king_sq;
+
+        board->pieces[black_king_sq].type = KING;
+        board->pieces[black_king_sq].color = BLACK;
+        board->king_pos[BLACK] = black_king_sq;
+
 
         // Update bitboards
-        board->piece_bb[WHITE][KING] = square_to_bitboard(SQUARE(SQUARE_FILE_E, SQUARE_RANK_1));
-        board->piece_bb[BLACK][KING] = square_to_bitboard(SQUARE(SQUARE_FILE_E, SQUARE_RANK_8));
+        board->piece_bb[WHITE][KING] = square_to_bitboard(white_king_sq);
+        board->piece_bb[BLACK][KING] = square_to_bitboard(black_king_sq);
         board->occupied[WHITE] = board->piece_bb[WHITE][KING];
         board->occupied[BLACK] = board->piece_bb[BLACK][KING];
         board->all_pieces = board->occupied[WHITE] | board->occupied[BLACK];
     }
 
     // Double check that bitboards are consistent with piece positions
-    validate_board_state(board);
+    // and that king_pos is correctly set.
+    validate_board_state(board); // This should now also verify king_pos if you extend it.
+                                 // For now, we ensure parse_fen sets it.
+    if (board->king_pos[WHITE] == -1 || board->king_pos[BLACK] == -1) {
+         fprintf(stderr, "Error: King positions not set after setup_default_position.\n");
+         // Attempt to find kings if not set by FEN (e.g. if FEN was invalid but fallback didn't run)
+         for(int i=0; i<64; ++i) {
+            if(board->pieces[i].type == KING) {
+                board->king_pos[board->pieces[i].color] = i;
+            }
+         }
+         if (board->king_pos[WHITE] == -1 || board->king_pos[BLACK] == -1) {
+            fprintf(stderr, "Critical Error: Could not find kings on board after setup.\n");
+            // Handle this critical error, perhaps by exiting or using a known safe state.
+         }
+    }
 }
 
 // Convert a FEN string to a board state
@@ -92,6 +116,8 @@ bool parse_fen(Board *board, const char *fen) {
                 break;
             case 'k':
                 piece.type = KING;
+                // Store king position
+                board->king_pos[piece.color] = SQUARE(file, rank);
                 break;
             default:
                 fprintf(stderr, "FEN error: Invalid piece type %c\n", *ptr);
@@ -237,20 +263,8 @@ bool parse_fen(Board *board, const char *fen) {
     board->fullmove_number = atoi(fullmove_str);
 
     // Check that all pieces are on the board
-    bool has_white_king = false;
-    bool has_black_king = false;
-
-    for (int sq = 0; sq < 64; sq++) {
-        if (board->pieces[sq].type == KING) {
-            if (board->pieces[sq].color == WHITE)
-                has_white_king = true;
-            else
-                has_black_king = true;
-        }
-    }
-
-    if (!has_white_king || !has_black_king) {
-        fprintf(stderr, "FEN error: Missing king(s)\n");
+    if (board->king_pos[WHITE] == -1 || board->king_pos[BLACK] == -1) {
+        fprintf(stderr, "FEN error: Missing king(s) or king_pos not set.\n");
         return false;
     }
 
