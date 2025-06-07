@@ -309,13 +309,13 @@ void shutdown_neural(void) {
 float evaluate_neural(const Board* board) {
 #if HAVE_ONNXRUNTIME
     if (!global_evaluator || !global_evaluator->session) {
-        return evaluate_position(board); // Fall back to basic evaluation
+        return evaluate_basic(board); // Fall back to basic evaluation
     }
     
     // Prepare input tensor
     float input_tensor[BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS];
     if (!board_to_planes(board, input_tensor, sizeof(input_tensor))) {
-        return evaluate_position(board);
+        return evaluate_basic(board);
     }
     
     // Run neural evaluation
@@ -333,10 +333,10 @@ float evaluate_neural(const Board* board) {
     }
     
     // Fall back to basic evaluation if neural inference fails
-    return evaluate_position(board);
+    return evaluate_basic(board);
 #else
     // Fall back to basic evaluation if ONNX Runtime is not available
-    return evaluate_position(board);
+    return evaluate_basic(board);
 #endif
 }
 
