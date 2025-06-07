@@ -39,106 +39,24 @@ bool is_position_quiet(const Board *board) {
 
 // Implementation of basic quiescence checking
 bool is_quiet_basic(const Board *board) {
-    // A position is considered non-quiet if:
-    // 1. The side to move is in check
-    // 2. There are hanging pieces (pieces that can be captured without retaliation)
-    // 3. There are immediate captures that significantly change material balance
-
-    Color side = board->side_to_move;
-    Color opponent = !side;
-
+    // Check if there are any captures available
+    MoveList captures;
+    generate_captures(board, &captures);
+    
     // Check if in check
     int king_square = -1;
     for (int sq = 0; sq < 64; sq++) {
-        if (board->pieces[sq].type == KING && board->pieces[sq].color == side) {
+        if (board->pieces[sq].type == KING && board->pieces[sq].color == board->side_to_move) {
             king_square = sq;
             break;
         }
     }
-
-    if (king_square != -1 && is_square_attacked(board, king_square, opponent)) {
-        return false;  // In check - not quiet
-    }
-
-    // Generate captures and check if any are significantly advantageous
-    MoveList captures;
-    generate_captures(board, &captures);
-
-    for (int i = 0; i < captures.count; i++) {
-        Move move = captures.moves[i];
-
-        // Skip en passant for simplicity
-        if (move.en_passant) {
-            continue;
-        }
-
-        int from_sq = move.from;
-        int to_sq = move.to;
-
-        // Skip if the target square has no piece (shouldn't happen for captures)
-        if (board->pieces[to_sq].type == EMPTY) {
-            continue;
-        }
-
-        // Get the value of the capturing and captured pieces
-        int attacker_value = 0;
-        int victim_value = 0;
-
-        switch (board->pieces[from_sq].type) {
-        case PAWN:
-            attacker_value = PAWN_VALUE;
-            break;
-        case KNIGHT:
-            attacker_value = KNIGHT_VALUE;
-            break;
-        case BISHOP:
-            attacker_value = BISHOP_VALUE;
-            break;
-        case ROOK:
-            attacker_value = ROOK_VALUE;
-            break;
-        case QUEEN:
-            attacker_value = QUEEN_VALUE;
-            break;
-        default:
-            break;
-        }
-
-        switch (board->pieces[to_sq].type) {
-        case PAWN:
-            victim_value = PAWN_VALUE;
-            break;
-        case KNIGHT:
-            victim_value = KNIGHT_VALUE;
-            break;
-        case BISHOP:
-            victim_value = BISHOP_VALUE;
-            break;
-        case ROOK:
-            victim_value = ROOK_VALUE;
-            break;
-        case QUEEN:
-            victim_value = QUEEN_VALUE;
-            break;
-        default:
-            break;
-        }
-
-        // If the victim is more valuable than the attacker (by a certain threshold),
-        // the position is not quiet
-        if (victim_value > attacker_value + 20) {  // 20 centipawns threshold
-            return false;
-        }
-
-        // Check if the attacker is hanging (can be captured without retaliation)
-        if (!is_square_attacked(board, from_sq, side) &&
-            is_square_attacked(board, from_sq, opponent)) {
-            return false;
-        }
-    }
-
-    // If we got here, the position is considered quiet
-    return true;
+    
+    bool in_check = (king_square != -1) && 
+                    is_square_attacked(board, king_square, !board->side_to_move);
+    
+    // A position is quiet if there are no captures and not in check
+    return captures.count == 0 && !in_check;
 }
 
 bool is_quiet_neural(const Board *board) {

@@ -400,23 +400,19 @@ void cmd_test_neural_model(const char *model_path) {
 }
 
 // Add new td-lambda command
-
-/**
- * Run a full TD-Lambda training cycle
- *
- * @param initial_model Path to the initial model (or empty for new model)
- * @param output_model Path for the output model
- * @param num_games Number of self-play games to generate
- * @param lambda Lambda parameter value
- */
 void cmd_td_lambda_training(const char *initial_model, const char *output_model,
-                            int num_games, float lambda) {
+                            int num_games, float lambda, float temperature);
+
+// Update the function implementation with temperature
+void cmd_td_lambda_training(const char *initial_model, const char *output_model,
+                            int num_games, float lambda, float temperature) {
     printf("Starting TD-Lambda training cycle\n");
 
     // Set up parameters
     TDLambdaParams params;
     params.lambda = lambda;
-    params.learning_rate = 0.01f;
+    params.learning_rate = 0.001f;
+    params.temperature = temperature;  // Use the temperature parameter
     params.num_games = num_games;
     params.max_moves = 100;
     params.model_path = initial_model;
@@ -499,7 +495,8 @@ int main(int argc, char **argv) {
             const char *output_model = (argc > 3) ? argv[3] : "chess_model_improved.onnx";
             int num_games = (argc > 4) ? atoi(argv[4]) : 100;
             float lambda = (argc > 5) ? atof(argv[5]) : 0.7f;
-            cmd_td_lambda_training(initial_model, output_model, num_games, lambda);
+            float temperature = (argc > 6) ? atof(argv[6]) : 1.0f;
+            cmd_td_lambda_training(initial_model, output_model, num_games, lambda, temperature);
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");

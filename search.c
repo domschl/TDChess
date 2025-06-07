@@ -426,21 +426,21 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) 
         }
 
         if (king_square != -1 && is_square_attacked(board, king_square, !board->side_to_move)) {
-            return -1000.0f; // Checkmate
+            return -1000.0f;  // Checkmate
         } else {
-            return 0.0f;     // Stalemate (draw)
+            return 0.0f;  // Stalemate (draw)
         }
     }
 
     // If only one legal move, return it immediately
     if (moves.count == 1) {
         *best_move = moves.moves[0];
-        
+
         // Make the move to get its score
         make_move(board, best_move);
         float score = -evaluate_position(board);
         unmake_move(board, *best_move);
-        
+
         return score;
     }
 
@@ -581,3 +581,24 @@ void sort_moves(MoveList *moves, int start_index) {
         moves->scores[best_index] = temp_score;
     }
 }
+/* duplicate code, see eval.c
+// Add this function to determine if a position is quiet (no captures possible)
+bool is_position_quiet(const Board* board) {
+    // A position is considered quiet if there are no captures available
+    MoveList captures;
+    generate_captures(board, &captures);
+
+    // Also check if in check
+    int king_square = -1;
+    for (int sq = 0; sq < 64; sq++) {
+        if (board->pieces[sq].type == KING && board->pieces[sq].color == board->side_to_move) {
+            king_square = sq;
+            break;
+        }
+    }
+
+    bool in_check = (king_square != -1) &&
+                    is_square_attacked(board, king_square, !board->side_to_move);
+
+    return captures.count == 0 && !in_check;
+} */
