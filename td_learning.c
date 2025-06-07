@@ -29,30 +29,119 @@ static Move select_move_with_randomness(Board *board, float temperature) {
         return moves.moves[0];
     }
 
+    // Add safety check for obvious blunders
+    // First pass: identify if any moves are losing material immediately
+    bool has_non_blunder_moves = false;
+    bool is_blunder[MAX_MOVES] = {0};
+    
+    // Piece values for basic material counting
+    const int piece_values[7] = {0, 100, 320, 330, 500, 900, 20000}; // EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
+    
+    for (int i = 0; i < moves.count; i++) {
+        // Check if move puts a piece on a square attacked by a lower-value piece
+        int to_square = moves.moves[i].to;
+        int from_square = moves.moves[i].from;
+        PieceType moved_piece = board->pieces[from_square].type;
+        
+        // Skip pawn promotions - these are usually good
+        if (moved_piece == PAWN && (to_square >= 56 || to_square <= 7)) {
+            has_non_blunder_moves = true;
+            continue;
+        }
+        
+        // Make the move to analyze the resulting position
+        make_move(board, &moves.moves[i]);
+        
+        // Now check if the moved piece can be captured
+        bool is_hanging = false;
+        int moved_piece_value = piece_values[moved_piece];
+        int lowest_attacker_value = 20000; // Initialize to king value
+        
+        // Check if any opponent pieces attack the destination square
+        for (int sq = 0; sq < 64; sq++) {
+            if (board->pieces[sq].type != EMPTY && 
+                board->pieces[sq].color == board->side_to_move) {
+                
+                // Check if this piece attacks our moved piece
+                Board test_board = *board;
+                // Fix: Initialize all fields in the Move struct
+                Move capture = {
+                    .from = sq,
+                    .to = to_square,
+                    .promotion = EMPTY,
+                    .capture = true,
+                    .castling = false,
+                    .en_passant = false,
+                    .captured_piece_square = to_square,
+                    .captured_piece_type = board->pieces[to_square].type,
+                    .captured_piece_color = board->pieces[to_square].color,
+                    .old_castle_rights = test_board.castle_rights,
+                    .old_en_passant = test_board.en_passant_square,
+                    .old_halfmove_clock = test_board.halfmove_clock
+                };
+                
+                if (is_move_legal(&test_board, capture)) {
+                    is_hanging = true;
+                    int attacker_value = piece_values[board->pieces[sq].type];
+                    if (attacker_value < lowest_attacker_value) {
+                        lowest_attacker_value = attacker_value;
+                    }
+                }
+            }
+        }
+        
+        // Unmake the move
+        unmake_move(board, moves.moves[i]);
+        
+        // If the piece is hanging and it's a bad trade, mark as blunder
+        if (is_hanging && lowest_attacker_value < moved_piece_value) {
+            is_blunder[i] = true;
+        } else {
+            has_non_blunder_moves = true;
+        }
+    }
+    
     // Evaluate all moves
     float scores[MAX_MOVES];
     float max_score = -INFINITY;
     float min_score = INFINITY;
 
     for (int i = 0; i < moves.count; i++) {
+        // Skip obvious blunders if we have better moves
+        if (is_blunder[i] && has_non_blunder_moves) {
+            scores[i] = -INFINITY;
+            continue;
+        }
+        
         make_move(board, &moves.moves[i]);
-
-        // Score is negative of evaluation (since we're looking from opponent's view)
+        
+        // Negate the evaluation to get it from our perspective
         scores[i] = -evaluate_neural(board);
-
-        // Track min/max for normalization
+        
         if (scores[i] > max_score) max_score = scores[i];
         if (scores[i] < min_score) min_score = scores[i];
-
+        
         unmake_move(board, moves.moves[i]);
+    }
+
+    // Use a lower temperature for obviously better moves
+    float effective_temp = temperature;
+    float score_range = max_score - min_score;
+    if (score_range > 3.0) {
+        // If there's a move that's significantly better, reduce randomness
+        effective_temp = temperature * 0.5;
     }
 
     // Apply temperature and convert to probabilities
     float total_probability = 0.0f;
     for (int i = 0; i < moves.count; i++) {
-        // Normalize score to [0,1] range then apply temperature
-        float normalized_score = (scores[i] - min_score) / (max_score - min_score + 1e-6f);
-        scores[i] = expf(normalized_score / temperature);
+        if (scores[i] == -INFINITY) {
+            // Skip blunders
+            continue;
+        }
+        
+        // Adjust scores relative to maximum (for numerical stability)
+        scores[i] = exp((scores[i] - max_score) / effective_temp);
         total_probability += scores[i];
     }
 
@@ -61,14 +150,26 @@ static Move select_move_with_randomness(Board *board, float temperature) {
     float cumulative = 0.0f;
 
     for (int i = 0; i < moves.count; i++) {
+        if (scores[i] == -INFINITY) continue;
+        
         cumulative += scores[i];
-        if (cumulative >= choice) {
+        if (choice <= cumulative) {
             return moves.moves[i];
         }
     }
 
-    // Fallback - shouldn't reach here
-    return moves.moves[0];
+    // Fallback - find the best non-blunder move
+    float best_score = -INFINITY;
+    int best_idx = 0;
+    
+    for (int i = 0; i < moves.count; i++) {
+        if (!is_blunder[i] && scores[i] > best_score) {
+            best_score = scores[i];
+            best_idx = i;
+        }
+    }
+    
+    return moves.moves[best_idx];
 }
 
 // Generate a single self-play game with randomness and draw detection

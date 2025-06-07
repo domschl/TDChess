@@ -72,15 +72,31 @@ class ChessNet(nn.Module):
         )
         
         # Second convolutional block
-        self.conv_block2 = nn.Sequential(
+        self.conv_block21 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True)
         )
+        self.conv_block22 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
+        )
+        self.conv_block23 = nn.Sequential(
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
+        )
+        self.conv_block24 = nn.Sequential(
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
+        )
+        
         
         # Third convolutional block
         self.conv_block3 = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.Conv2d(256, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True)
         )
@@ -99,7 +115,10 @@ class ChessNet(nn.Module):
     
     def forward(self, x):
         x = self.conv_block1(x)
-        x = self.conv_block2(x)
+        x = self.conv_block21(x)
+        x = self.conv_block22(x)
+        x = self.conv_block23(x)
+        x = self.conv_block24(x)
         x = self.conv_block3(x)
         return self.value_head(x)
 
@@ -262,7 +281,7 @@ def main():
     parser.add_argument('--output', type=str, default='chess_model.onnx', help='Output ONNX model path')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size for training')
-    parser.add_argument('--learning-rate', type=float, default=0.001, help='Initial learning rate')
+    parser.add_argument('--learning-rate', type=float, default=0.0001, help='Initial learning rate')
     
     args = parser.parse_args()
     

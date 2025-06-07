@@ -11,11 +11,12 @@ INITIAL_DATASET="./model/initial_dataset.json"
 
 # Number of iterations to run
 ITERATIONS=50
-TEMPERATURE=1.2
+TEMPERATURE=0.7
 
 # Training parameters
 GAMES_PER_ITERATION=100
 LAMBDA=0.7
+LEARNING_RATE=0.0001
 
 echo "Starting TDChess training pipeline with $ITERATIONS iterations"
 
@@ -27,7 +28,7 @@ if [ ! -f "$MODEL" ]; then
         ./build/TDChess generate-dataset "$INITIAL_DATASET" 10000 4
     fi
     echo "Training initial model..."
-    python train_neural.py --dataset "$INITIAL_DATASET" --output "$MODEL" --epochs 100 --batch-size 128
+    python train_neural.py --dataset "$INITIAL_DATASET" --output "$MODEL" --epochs 200 --batch-size 128 --learning-rate $LEARNING_RATE
 fi
 
 # Iterative training

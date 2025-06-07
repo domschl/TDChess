@@ -411,7 +411,7 @@ void cmd_td_lambda_training(const char *initial_model, const char *output_model,
     // Set up parameters
     TDLambdaParams params;
     params.lambda = lambda;
-    params.learning_rate = 0.001f;
+    params.learning_rate = 0.0001f;
     params.temperature = temperature;  // Use the temperature parameter
     params.num_games = num_games;
     params.max_moves = 100;
