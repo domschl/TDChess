@@ -17,6 +17,8 @@
 #define ANSI_BG_WHITE "\x1B[47m"
 #define ANSI_BG_BLACK "\x1B[40m"
 #define ANSI_BG_GRAY "\x1B[100m"
+#define ANSI_BG_BRIGHT_WHITE "\x1B[107m"
+#define ANSI_BRIGHT_BLACK "\x1B[90m"
 #define ANSI_BRIGHT_WHITE "\x1B[97m"
 
 // Unicode chess symbols
@@ -37,14 +39,14 @@ void print_board_pretty(const Board *board) {
     // Print top border with file labels
     printf("    ");
     for (int file = 0; file < 8; file++) {
-        printf(" %c ", 'a' + file);
+        printf(" %c  ", 'a' + file);  // Adjusted spacing
     }
     printf("\n");
 
     // Print top border
     printf("   ┌");
     for (int file = 0; file < 8; file++) {
-        printf("───");
+        printf("────");  // Widened border
         if (file < 7) printf("┬");
     }
     printf("┐\n");
@@ -58,12 +60,18 @@ void print_board_pretty(const Board *board) {
             Piece piece = board->pieces[square];
 
             // Determine square color
-            const char *bg_color = ((file + rank) % 2 == 0) ? ANSI_BG_GRAY : ANSI_BG_WHITE;
-            const char *text_color = (piece.color == WHITE) ? ANSI_BRIGHT_WHITE : ANSI_BLACK;
+            const char *bg_color = ((file + rank) % 2 == 0) ? ANSI_BG_WHITE : ANSI_BG_BRIGHT_WHITE;
+            const char *text_color = (piece.color == WHITE) ? ANSI_YELLOW : ANSI_BLUE;
 
-            // Print piece with colors
-            printf("%s%s %s %s", bg_color, text_color,
-                   UNICODE_PIECES[piece.type][piece.color], ANSI_RESET);
+            // Print piece with colors - ensure consistent width
+            if (piece.type == EMPTY) {
+                // Empty square - three spaces for consistent width
+                printf("%s    %s", bg_color, ANSI_RESET);
+            } else {
+                // Square with piece - space, piece, space
+                printf("%s%s  %s %s", bg_color, text_color,
+                       UNICODE_PIECES[piece.type][piece.color], ANSI_RESET);
+            }
 
             if (file < 7) printf("│");
         }
@@ -74,7 +82,7 @@ void print_board_pretty(const Board *board) {
         if (rank > 0) {
             printf("   ├");
             for (int file = 0; file < 8; file++) {
-                printf("───");
+                printf("────");  // Widened divider
                 if (file < 7) printf("┼");
             }
             printf("┤\n");
@@ -84,7 +92,7 @@ void print_board_pretty(const Board *board) {
     // Print bottom border
     printf("   └");
     for (int file = 0; file < 8; file++) {
-        printf("───");
+        printf("────");  // Widened border
         if (file < 7) printf("┴");
     }
     printf("┘\n");
@@ -92,7 +100,7 @@ void print_board_pretty(const Board *board) {
     // Print bottom file labels
     printf("    ");
     for (int file = 0; file < 8; file++) {
-        printf(" %c ", 'a' + file);
+        printf(" %c  ", 'a' + file);  // Adjusted spacing
     }
     printf("\n");
 
@@ -126,7 +134,7 @@ void print_board_pretty(const Board *board) {
 
 // Convert a move to algebraic notation
 char *move_to_algebraic(const Board *board, const Move *move, char *buffer, size_t buffer_size) {
-    if (!move || !buffer || buffer_size < 6) return NULL;
+    if (!move || !buffer || buffer_size < 10) return NULL;  // Increased minimum buffer size for Unicode
 
     // Special case for castling
     if (move->castling) {
@@ -138,37 +146,18 @@ char *move_to_algebraic(const Board *board, const Move *move, char *buffer, size
         return buffer;
     }
 
-    // Determine piece symbol
-    char piece_symbol = ' ';
+    // Determine piece symbol - use Unicode chess pieces
+    const char *piece_symbol = "";
     int from_piece_type = board->pieces[move->from].type;
+    int piece_color = board->pieces[move->from].color;
 
-    switch (from_piece_type) {
-    case KING:
-        piece_symbol = 'K';
-        break;
-    case QUEEN:
-        piece_symbol = 'Q';
-        break;
-    case ROOK:
-        piece_symbol = 'R';
-        break;
-    case BISHOP:
-        piece_symbol = 'B';
-        break;
-    case KNIGHT:
-        piece_symbol = 'N';
-        break;
-    case PAWN:
-        piece_symbol = ' ';
-        break;
-    default:
-        piece_symbol = '?';
-        break;
+    // Use the appropriate Unicode piece based on type and color
+    if (from_piece_type != PAWN) {
+        piece_symbol = UNICODE_PIECES[from_piece_type][piece_color];
     }
 
     // Source and destination coordinates
     char src_file = 'a' + SQUARE_FILE(move->from);
-    // Removed unused variable src_rank
     char dst_file = 'a' + SQUARE_FILE(move->to);
     char dst_rank = '1' + SQUARE_RANK(move->to);
 
@@ -181,37 +170,20 @@ char *move_to_algebraic(const Board *board, const Move *move, char *buffer, size
         }
     } else {
         if (move->capture) {
-            snprintf(buffer, buffer_size, "%cx%c%c", piece_symbol, dst_file, dst_rank);
+            snprintf(buffer, buffer_size, "%sx%c%c", piece_symbol, dst_file, dst_rank);
         } else {
-            snprintf(buffer, buffer_size, "%c%c%c", piece_symbol, dst_file, dst_rank);
+            snprintf(buffer, buffer_size, "%s%c%c", piece_symbol, dst_file, dst_rank);
         }
     }
 
     // Add promotion piece if applicable
     if (move->promotion != EMPTY) {
-        char promotion_symbol = '?';
-        switch (move->promotion) {
-        case QUEEN:
-            promotion_symbol = 'Q';
-            break;
-        case ROOK:
-            promotion_symbol = 'R';
-            break;
-        case BISHOP:
-            promotion_symbol = 'B';
-            break;
-        case KNIGHT:
-            promotion_symbol = 'N';
-            break;
-        default:
-            break;
-        }
+        const char *promotion_symbol = UNICODE_PIECES[move->promotion][piece_color];
 
         size_t len = strlen(buffer);
-        if (len + 2 < buffer_size) {
+        if (len + strlen(promotion_symbol) + 1 < buffer_size) {
             buffer[len] = '=';
-            buffer[len + 1] = promotion_symbol;
-            buffer[len + 2] = '\0';
+            strcpy(&buffer[len + 1], promotion_symbol);
         }
     }
 
@@ -247,70 +219,165 @@ void print_game_debug(const Board *positions, int num_positions, int interval) {
     }
 }
 
-// Print a game with moves in algebraic notation and evaluations
+// Add this helper function to compare board positions
+bool boards_equal(const Board *board1, const Board *board2) {
+    // Compare pieces
+    for (int sq = 0; sq < 64; sq++) {
+        if (board1->pieces[sq].type != board2->pieces[sq].type ||
+            board1->pieces[sq].color != board2->pieces[sq].color) {
+            return false;
+        }
+    }
+    
+    // Compare additional state that matters for move detection
+    if (board1->side_to_move != board2->side_to_move) return false;
+    if (board1->castle_rights != board2->castle_rights) return false;
+    if (board1->en_passant_square != board2->en_passant_square) return false;
+    
+    return true;
+}
+
+// Completely revised print_game_with_evals function
 void print_game_with_evals(const Board *positions, float *evaluations, int num_positions) {
-    printf("\n=== Game with Evaluations ===\n");
+    if (num_positions <= 1) {
+        printf("No moves to display\n");
+        return;
+    }
+    
+    printf("\n=== Game with Evaluations ===\n\n");
 
     // Print initial position
-    printf("\nInitial position:\n");
     print_board_pretty(&positions[0]);
-    printf("Evaluation: %.2f\n", evaluations[0]);
-
-    char move_buffer[8];
-
-    // For each position, reconstruct the move that led to it
+    printf("Initial evaluation: %.2f\n\n", evaluations[0]);
+    
+    // Simple output format - show all positions and evaluations
     for (int i = 1; i < num_positions; i++) {
-        Board prev_board = positions[i - 1];
-        Board curr_board = positions[i];
-
-        // Determine the move made
-        Move move = {0};
-        bool found_move = false;
-
+        printf("Position %d (move %d):\n", i, (i+1)/2);
+        
+        // Determine side to move in previous position
+        bool white_to_move = (positions[i-1].side_to_move == WHITE);
+        
+        // Print move number
+        if (white_to_move) {
+            printf("%d. ", positions[i-1].fullmove_number);
+        } else {
+            printf("%d... ", positions[i-1].fullmove_number);
+        }
+        
+        // Try to find the move that was made
         MoveList moves;
-        generate_legal_moves(&prev_board, &moves);
-
+        generate_legal_moves(&positions[i-1], &moves);
+        bool found_move = false;
+        
         for (int m = 0; m < moves.count; m++) {
-            Board test_board = prev_board;
+            Board test_board = positions[i-1];
             make_move(&test_board, &moves.moves[m]);
-
-            // Check if boards match
-            bool match = true;
-            for (int sq = 0; sq < 64; sq++) {
-                if (test_board.pieces[sq].type != curr_board.pieces[sq].type ||
-                    test_board.pieces[sq].color != curr_board.pieces[sq].color) {
-                    match = false;
-                    break;
-                }
-            }
-
-            if (match) {
-                move = moves.moves[m];
+            
+            if (boards_equal(&test_board, &positions[i])) {
+                // Move found! Print it in algebraic notation
+                char move_buffer[16];
+                move_to_algebraic(&positions[i-1], &moves.moves[m], move_buffer, sizeof(move_buffer));
+                printf("%s (Eval: %.2f)\n", move_buffer, evaluations[i]);
                 found_move = true;
                 break;
             }
         }
+        
+        if (!found_move) {
+            printf("[Move not detected] (Eval: %.2f)\n", evaluations[i]);
+        }
+        
+        // Print board every 5 moves
+        if (i % 10 == 0 || !found_move) {
+            print_board_pretty(&positions[i]);
+            printf("\n");
+        }
+    }
+    
+    // Final position
+    printf("\nFinal position:\n");
+    print_board_pretty(&positions[num_positions-1]);
+    printf("Final evaluation: %.2f\n", evaluations[num_positions-1]);
+}
 
-        // Print move information
-        if (found_move) {
-            printf("\nMove %d: ", (i + 1) / 2);
-            if (prev_board.side_to_move == WHITE) {
-                printf("%d. ", prev_board.fullmove_number);
-            } else if (i == 1) {
-                printf("%d... ", prev_board.fullmove_number);
+// Add a simpler alternative function that just shows positions without move detection
+void print_positions_with_evals(const Board *positions, float *evaluations, int num_positions) {
+    printf("\n=== Game Positions ===\n\n");
+    
+    for (int i = 0; i < num_positions; i++) {
+        printf("\nPosition %d (Fullmove: %d):\n", i, positions[i].fullmove_number);
+        print_board_pretty(&positions[i]);
+        printf("Evaluation: %.2f\n", evaluations[i]);
+        
+        if (i > 0) {
+            // Show what changed from previous position
+            printf("Changes from previous position:\n");
+            bool changes_found = false;
+            
+            for (int sq = 0; sq < 64; sq++) {
+                Piece prev_piece = positions[i-1].pieces[sq];
+                Piece curr_piece = positions[i].pieces[sq];
+                
+                // Only show actual changes (not empty → empty)
+                if (prev_piece.type != curr_piece.type || 
+                    prev_piece.color != curr_piece.color) {
+                    
+                    // Skip if both are empty (this shouldn't happen, but let's be safe)
+                    if (prev_piece.type == EMPTY && curr_piece.type == EMPTY) {
+                        continue;
+                    }
+                    
+                    changes_found = true;
+                    int file = SQUARE_FILE(sq);
+                    int rank = SQUARE_RANK(sq);
+                    printf("  Square %c%d: ", 'a' + file, rank + 1);
+                    
+                    if (prev_piece.type != EMPTY) {
+                        printf("%s → ", UNICODE_PIECES[prev_piece.type][prev_piece.color]);
+                    } else {
+                        printf("empty → ");
+                    }
+                    
+                    if (curr_piece.type != EMPTY) {
+                        printf("%s\n", UNICODE_PIECES[curr_piece.type][curr_piece.color]);
+                    } else {
+                        printf("empty\n");
+                    }
+                }
             }
-
-            move_to_algebraic(&prev_board, &move, move_buffer, sizeof(move_buffer));
-            printf("%s", move_buffer);
-
-            printf(" (Eval: %.2f)\n", evaluations[i]);
-
-            // Every 10 full moves, also print the board
-            if (i % 20 == 0) {
-                print_board_pretty(&curr_board);
+            
+            if (!changes_found) {
+                printf("  No piece changes detected!\n");
             }
-        } else {
-            printf("\nMove %d: [Unknown move] (Eval: %.2f)\n", (i + 1) / 2, evaluations[i]);
+            
+            // Show other state changes
+            const Board *prev = &positions[i-1];
+            const Board *curr = &positions[i];
+            
+            if (prev->side_to_move != curr->side_to_move) {
+                printf("  Side to move: %s → %s\n", 
+                       prev->side_to_move == WHITE ? "White" : "Black",
+                       curr->side_to_move == WHITE ? "White" : "Black");
+            }
+            
+            if (prev->castle_rights != curr->castle_rights) {
+                printf("  Castling rights changed\n");
+            }
+            
+            if (prev->en_passant_square != curr->en_passant_square) {
+                printf("  En passant square changed\n");
+            }
+            
+            if (prev->fullmove_number != curr->fullmove_number) {
+                printf("  Fullmove number: %d → %d\n", 
+                       prev->fullmove_number, curr->fullmove_number);
+                
+                // Detect negative or invalid fullmove numbers
+                if (curr->fullmove_number < 1) {
+                    printf("  ERROR: Invalid fullmove number detected: %d\n", 
+                           curr->fullmove_number);
+                }
+            }
         }
     }
 }

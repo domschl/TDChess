@@ -20,6 +20,9 @@ void print_game_debug(const Board *positions, int num_positions, int interval);
 // Print a game with moves in algebraic notation and evaluations
 void print_game_with_evals(const Board *positions, float *evaluations, int num_positions);
 
+// Print positions with evaluations (simpler alternative to print_game_with_evals)
+void print_positions_with_evals(const Board *positions, float *evaluations, int num_positions);
+
 // Check if neural evaluation is available
 bool is_neural_initialized(void);
 

@@ -12,8 +12,37 @@
 #include <time.h>
 #include <math.h>
 
+// Rename the function to avoid conflicts with board.c
+static void validate_self_play_board_state(Board *board, int move_number) {
+    // Fix negative or zero fullmove numbers
+    if (board->fullmove_number < 1) {
+        // Estimate the correct fullmove number based on the move count
+        int estimated_fullmove = (move_number / 2) + 1;
+        printf("Fixing invalid fullmove number: %d → %d\n",
+               board->fullmove_number, estimated_fullmove);
+        board->fullmove_number = estimated_fullmove;
+    }
+
+    // Ensure valid side to move
+    if (board->side_to_move != WHITE && board->side_to_move != BLACK) {
+        printf("Fixing invalid side to move\n");
+        // Toggle from previous value, defaulting to WHITE if completely invalid
+        board->side_to_move = (board->side_to_move == BLACK) ? WHITE : BLACK;
+    }
+
+    // Validate en passant square
+    if (board->en_passant_square != -1) {
+        int rank = SQUARE_RANK(board->en_passant_square);
+        if ((board->side_to_move == WHITE && rank != 5) ||
+            (board->side_to_move == BLACK && rank != 2)) {
+            printf("Fixing invalid en passant square\n");
+            board->en_passant_square = -1;
+        }
+    }
+}
+
 // Random move selection to increase diversity
-static Move select_move_with_randomness(Board *board, int depth, float temperature) {
+static Move select_move_with_randomness(Board *board, float temperature) {
     // Generate all legal moves
     MoveList moves;
     generate_legal_moves(board, &moves);
@@ -71,38 +100,6 @@ static Move select_move_with_randomness(Board *board, int depth, float temperatu
     return moves.moves[0];
 }
 
-// Check for draw by repetition
-static bool is_draw_by_repetition(const Board *positions, int num_positions, const Board *current) {
-    int repetition_count = 0;
-
-    // Compare current position with past positions
-    for (int i = 0; i < num_positions; i++) {
-        bool same_position = true;
-
-        // Compare pieces
-        for (int sq = 0; sq < 64; sq++) {
-            if (positions[i].pieces[sq].type != current->pieces[sq].type ||
-                positions[i].pieces[sq].color != current->pieces[sq].color) {
-                same_position = false;
-                break;
-            }
-        }
-
-        // Also compare castling rights and en passant
-        if (same_position &&
-            positions[i].castle_rights == current->castle_rights &&
-            positions[i].en_passant_square == current->en_passant_square &&
-            positions[i].side_to_move == current->side_to_move) {
-            repetition_count++;
-            if (repetition_count >= 3) {
-                return true;  // Three-fold repetition
-            }
-        }
-    }
-
-    return false;
-}
-
 // Generate a single self-play game with randomness and draw detection
 static Game generate_self_play_game(const TDLambdaParams *params) {
     // Allocate memory for game positions
@@ -129,6 +126,9 @@ static Game generate_self_play_game(const TDLambdaParams *params) {
 
     // Play the game
     for (int move_num = 0; move_num < params->max_moves; move_num++) {
+        // Validate board state before recording
+        validate_self_play_board_state(&board, move_num);
+
         // Record the current position
         memcpy(&game.positions[game.move_count].board, &board, sizeof(Board));
         game.positions[game.move_count].evaluation = evaluate_neural(&board);
@@ -162,25 +162,77 @@ static Game generate_self_play_game(const TDLambdaParams *params) {
         }
 
         // Check for draw by repetition
-        Board *past_positions = malloc(game.move_count * sizeof(Board));
-        for (int i = 0; i < game.move_count; i++) {
-            past_positions[i] = game.positions[i].board;
+        bool repetition_draw = false;
+        for (int i = 0; i < game.move_count - 2; i++) {
+            // Only check positions with the same side to move
+            if (game.positions[i].board.side_to_move != board.side_to_move) {
+                continue;
+            }
+
+            // Compare board positions
+            bool same_position = true;
+            for (int sq = 0; sq < 64; sq++) {
+                if (game.positions[i].board.pieces[sq].type != board.pieces[sq].type ||
+                    game.positions[i].board.pieces[sq].color != board.pieces[sq].color) {
+                    same_position = false;
+                    break;
+                }
+            }
+
+            // If all pieces match and castling/en passant rights match
+            if (same_position &&
+                game.positions[i].board.castle_rights == board.castle_rights &&
+                game.positions[i].board.en_passant_square == board.en_passant_square) {
+
+                // Count occurrences of this position
+                int count = 1;  // This position already
+                for (int j = i + 1; j < game.move_count; j++) {
+                    // Only check positions with the same side to move
+                    if (game.positions[j].board.side_to_move != board.side_to_move) {
+                        continue;
+                    }
+
+                    // Compare positions
+                    bool match = true;
+                    for (int sq = 0; sq < 64; sq++) {
+                        if (game.positions[j].board.pieces[sq].type != board.pieces[sq].type ||
+                            game.positions[j].board.pieces[sq].color != board.pieces[sq].color) {
+                            match = false;
+                            break;
+                        }
+                    }
+
+                    if (match &&
+                        game.positions[j].board.castle_rights == board.castle_rights &&
+                        game.positions[j].board.en_passant_square == board.en_passant_square) {
+                        count++;
+                    }
+                }
+
+                if (count >= 2) {  // This is the third occurrence
+                    repetition_draw = true;
+                    break;
+                }
+            }
         }
 
-        if (is_draw_by_repetition(past_positions, game.move_count, &board)) {
-            free(past_positions);
-            break;  // Draw by repetition
+        if (repetition_draw) {
+            printf("Draw by threefold repetition\n");
+            break;
         }
-        free(past_positions);
 
-        // Calculate temperature for this move
-        // Decrease temperature as the game progresses
+        // Calculate temperature for this move (gradually decrease)
         float temperature = base_temperature * (1.0f - (float)move_num / params->max_moves * 0.7f);
         if (temperature < 0.1f) temperature = 0.1f;  // Minimum temperature
 
-        // Select and make move with temperature-based randomness
-        Move move = select_move_with_randomness(&board, 2, temperature);
+        // Select move with randomness (without depth parameter)
+        Move move = select_move_with_randomness(&board, temperature);
+
+        // Make the move
         make_move(&board, &move);
+
+        // Validate board state after making the move
+        validate_self_play_board_state(&board, move_num + 1);
     }
 
     // Restore original evaluation type
@@ -302,11 +354,10 @@ bool generate_td_lambda_dataset(const TDLambdaParams *params) {
                 evaluations[j] = games[i].positions[j].evaluation;
             }
 
-            // Print detailed game
+            // Try both visualization methods
             print_game_with_evals(positions, evaluations, games[i].move_count);
-
-            // Also print every 10th position
-            print_game_debug(positions, games[i].move_count, 10);
+            printf("\n=== Alternative view (all positions) ===\n");
+            print_positions_with_evals(positions, evaluations, games[i].move_count);
 
             free(positions);
             free(evaluations);
