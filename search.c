@@ -239,8 +239,12 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
                     case BISHOP: captured_piece_value = BISHOP_VALUE; break;
                     case ROOK: captured_piece_value = ROOK_VALUE; break;
                     case QUEEN: captured_piece_value = QUEEN_VALUE; break;
-                    // No default case needed as captured_piece_value remains 0 for unknown types,
-                    // which means the pruning condition would be based on stand_pat + 0 + margin < alpha.
+                    case KING:  // Kings should not be capturable in a way that reaches here in quiescence,
+                                // but handle for completeness to avoid warnings.
+                    case EMPTY: // Should not happen for a victim piece in a capture move.
+                    default:    // Catch any other unexpected piece types.
+                        captured_piece_value = 0; // Assign 0 for safety / to prevent uninitialized use.
+                        break;
                 }
 
                 if (stand_pat + captured_piece_value + DELTA_PRUNING_MARGIN < alpha) {
