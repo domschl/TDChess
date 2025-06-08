@@ -43,7 +43,7 @@ class ResidualBlock(nn.Module):
         self.bn1 = nn.BatchNorm2d(channels)
         self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(channels)
-        self.relu = nn.ReLU()
+        self.relu = nn.LeakyReLU(0.1)
         
     def forward(self, x):
         residual = x
@@ -55,48 +55,52 @@ class ResidualBlock(nn.Module):
 
 
 class ChessNet(nn.Module):
-    """Improved neural network for chess position evaluation"""
+    """Neural network for chess position evaluation with fixes for vanishing gradients"""
     
     def __init__(self):
         super(ChessNet, self).__init__()
         
         # Input: 14 channels (6 piece types * 2 colors + side to move + en passant)
-        # First block
         self.conv1 = nn.Conv2d(14, 64, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(64)
         
-        # Residual blocks
+        # Three residual blocks
         self.residual_blocks = nn.ModuleList([
-            ResidualBlock(64) for _ in range(5)  # Add 5 residual blocks
+            ResidualBlock(64) for _ in range(3)
         ])
         
-        # Value head
+        # Value head with smaller layers to prevent overfitting
         self.value_conv = nn.Conv2d(64, 32, kernel_size=1)
         self.value_bn = nn.BatchNorm2d(32)
-        self.value_fc1 = nn.Linear(32 * 8 * 8, 128)
-        self.value_fc2 = nn.Linear(128, 1)
+        self.value_fc1 = nn.Linear(32 * 8 * 8, 64)
+        self.value_fc2 = nn.Linear(64, 1)
         
-        # Activation functions
-        self.relu = nn.ReLU()
-        self.tanh = nn.Tanh()
+        # Important: Use LeakyReLU to prevent dead neurons
+        self.relu = nn.LeakyReLU(0.1)
         
-        # Proper weight initialization
+        # Initialize with careful scaling to prevent vanishing gradients
         self._initialize_weights()
     
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                # Careful initialization for the final layer
+                if m.out_features == 1:  # Output layer
+                    nn.init.uniform_(m.weight, -0.01, 0.01)
+                else:
+                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
         # Initial convolution
-        x = self.bn1(self.relu(self.conv1(x)))
+        x = self.relu(self.bn1(self.conv1(x)))
         
         # Residual blocks
         for block in self.residual_blocks:
@@ -106,16 +110,22 @@ class ChessNet(nn.Module):
         value = self.relu(self.value_bn(self.value_conv(x)))
         value = value.view(-1, 32 * 8 * 8)
         value = self.relu(self.value_fc1(value))
-        value = self.tanh(self.value_fc2(value))
+        
+        # No activation on final layer - we'll handle this in the loss function
+        value = self.value_fc2(value)
         
         return value
 
 
 def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1):
-    """Train the neural network with improved convergence"""
+    """Train the neural network with fixes for convergence issues"""
     
     # Load dataset
     full_dataset = ChessDataset(dataset_path)
+    
+    # Print dataset statistics
+    evals = [y for _, y in full_dataset]
+    print(f"Dataset stats: min={min(evals):.4f}, max={max(evals):.4f}, mean={sum(evals)/len(evals):.4f}")
     
     # Split into training and validation sets
     val_size = int(len(full_dataset) * val_split)
@@ -130,25 +140,21 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     
     # Create model
     model = ChessNet()
+    
+    # Use MSE loss but apply tanh to model output to match expected range
     criterion = nn.MSELoss()
     
-    # Higher initial learning rate
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    # Use Adam with lower learning rate
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate/10)
     
-    # Better learning rate scheduler
-    scheduler = optim.lr_scheduler.OneCycleLR(
-        optimizer, 
-        max_lr=learning_rate*10,  # Peak at 10x the base learning rate
-        epochs=epochs,
-        steps_per_epoch=len(train_loader),
-        pct_start=0.1,  # Warm up for 10% of training
-        div_factor=10.0,  # Start with lr/10
-        final_div_factor=100.0  # End with lr/1000
+    # Simpler learning rate scheduler 
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 'min', patience=5, factor=0.5, verbose=True
     )
     
     # Train model
     device = torch.device("cuda" if torch.cuda.is_available() else 
-                            "mps" if torch.backends.mps.is_available() else "cpu")
+                         "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
     model.to(device)
     
@@ -162,80 +168,92 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     patience_counter = 0
     best_model_path = Path(output_model).with_suffix('.best.pt')
     
-    # Track gradients and weights to detect problems
-    grad_norms = []
-    weight_norms = []
+    # Verify model gets gradients in first batch
+    model.train()
+    first_batch = next(iter(train_loader))
+    inputs, targets = first_batch
+    inputs = inputs.to(device).float()
+    targets = targets.to(device).float().view(-1, 1)
     
+    optimizer.zero_grad()
+    outputs = model(inputs)
+    loss = criterion(torch.tanh(outputs), targets)  # Apply tanh to constrain outputs
+    loss.backward()
+    
+    # Check if gradients are flowing
+    has_grad = False
+    max_grad = 0.0
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_norm = param.grad.norm().item()
+            max_grad = max(max_grad, grad_norm)
+            if grad_norm > 0:
+                has_grad = True
+                print(f"Gradient detected in {name}: {grad_norm:.6f}")
+    
+    if not has_grad:
+        print("WARNING: No gradients detected in first batch! Check model architecture.")
+    else:
+        print(f"Maximum gradient norm: {max_grad:.6f}")
+    
+    # Main training loop
     for epoch in range(epochs):
         # Training phase
         model.train()
         running_loss = 0.0
-        epoch_grad_norm = 0.0
-        epoch_weight_norm = 0.0
-        num_batches = 0
+        total_grad_norm = 0.0
+        batch_count = 0
         
         for inputs, targets in train_loader:
-            # Convert to float32 before moving to device
-            inputs = inputs.to(torch.float32).to(device)
-            targets = targets.to(torch.float32).to(device).view(-1, 1)
-            
-            # Scale targets - this can help convergence if evaluations are in centipawns
-            targets = targets / 100.0  # Scale down if evaluations are in centipawns
+            inputs = inputs.to(device).float()
+            targets = targets.to(device).float().view(-1, 1)
             
             optimizer.zero_grad()
             outputs = model(inputs)
-            loss = criterion(outputs, targets)
+            # Important: Apply tanh to model outputs to constrain to [-1, 1]
+            loss = criterion(torch.tanh(outputs), targets)
             loss.backward()
             
             # Gradient clipping to prevent exploding gradients
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             
-            # Track gradients and weights
-            total_grad_norm = 0.0
-            total_weight_norm = 0.0
-            for p in model.parameters():
-                if p.grad is not None:
-                    total_grad_norm += p.grad.data.norm(2).item() ** 2
-                total_weight_norm += p.data.norm(2).item() ** 2
-            
-            epoch_grad_norm += total_grad_norm ** 0.5
-            epoch_weight_norm += total_weight_norm ** 0.5
-            num_batches += 1
+            # Track gradient norms
+            grad_norm = 0.0
+            for param in model.parameters():
+                if param.grad is not None:
+                    grad_norm += param.grad.norm().item() ** 2
+            total_grad_norm += grad_norm ** 0.5
+            batch_count += 1
             
             optimizer.step()
-            scheduler.step()  # Step per batch with OneCycleLR
-            
             running_loss += loss.item() * inputs.size(0)
-        
-        # Average norms for the epoch
-        grad_norms.append(epoch_grad_norm / num_batches)
-        weight_norms.append(epoch_weight_norm / num_batches)
         
         train_loss = running_loss / len(train_dataset)
         train_losses.append(train_loss)
         
-        # Print debug info about gradients and weights
-        if epoch % 5 == 0:
-            print(f"Gradient norm: {grad_norms[-1]:.6f}, Weight norm: {weight_norms[-1]:.6f}")
+        avg_grad_norm = total_grad_norm / batch_count if batch_count > 0 else 0
         
-        # Validation phase with the same target scaling
+        # Validation phase
         model.eval()
         running_val_loss = 0.0
         with torch.no_grad():
             for inputs, targets in val_loader:
-                inputs = inputs.to(torch.float32).to(device)
-                targets = targets.to(torch.float32).to(device).view(-1, 1)
-                targets = targets / 100.0  # Apply the same scaling
+                inputs = inputs.to(device).float()
+                targets = targets.to(device).float().view(-1, 1)
                 
                 outputs = model(inputs)
-                val_loss = criterion(outputs, targets)
+                # Apply same tanh to validation
+                val_loss = criterion(torch.tanh(outputs), targets)
                 running_val_loss += val_loss.item() * inputs.size(0)
         
         val_loss = running_val_loss / len(val_dataset)
         val_losses.append(val_loss)
         
-        # Print progress
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {scheduler.get_last_lr()[0]:.6f}")
+        # Update learning rate based on validation loss
+        scheduler.step(val_loss)
+        
+        # Print progress including gradient norm
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, Grad Norm: {avg_grad_norm:.6f}")
         
         # Save best model
         if val_loss < best_val_loss:
@@ -258,15 +276,14 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     plt.plot(train_losses, label='Training Loss')
     plt.plot(val_losses, label='Validation Loss')
     plt.xlabel('Epochs')
-    plt.ylabel('log(Loss)')
+    plt.ylabel('Loss')
     plt.title('Training and Validation Loss')
     plt.legend()
-    plt.yscale('log')
     plt.savefig(Path(output_model).with_suffix('.png'))
     
     # Save model in TorchScript format for C++ inference
-    dummy_input = torch.randn(1, 14, 8, 8, device=device)
-    traced_script_module = torch.jit.trace(model, dummy_input)
+    example_input = torch.randn(1, 14, 8, 8, device=device)
+    traced_script_module = torch.jit.trace(model, example_input)
     traced_script_module.save(output_model)
     
     print(f"Model exported to {output_model}")
@@ -277,6 +294,8 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
         sample_input = sample_input.unsqueeze(0).to(device)
         with torch.no_grad():
             sample_output = model(sample_input)
+            # Apply tanh to match training
+            sample_output = torch.tanh(sample_output)
         print(f"Sample evaluation - Target: {sample_target:.6f}, Model output: {sample_output.item():.6f}")
     
     return model
