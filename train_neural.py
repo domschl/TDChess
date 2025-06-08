@@ -15,7 +15,7 @@ from pathlib import Path
 class ChessDataset(Dataset):
     """Chess position dataset with normalization for wide evaluation range"""
     
-    def __init__(self, json_file, max_eval=20.0):
+    def __init__(self, json_file, max_eval=200.0):
         with open(json_file, 'r') as f:
             data = json.load(f)
         
@@ -135,7 +135,7 @@ class ChessNet(nn.Module):
         return value
 
 
-def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1, max_eval=20.0):
+def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1, max_eval=2000.0):
     """Train the neural network with better handling of wide evaluation range"""
     
     # Load dataset with normalization
