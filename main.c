@@ -12,6 +12,7 @@
 #include "td_learning.h"
 #include "visualization.h"
 #include "self_play.h"
+#include "pytorch_binding.h"  // Add this to your imports
 
 // Add this function declaration at the top of the file with other function declarations
 
@@ -475,6 +476,34 @@ void cmd_td_lambda_training(const char *initial_model, const char *output_model,
     }
 }
 
+void test_pytorch(const char *model_path) {
+    printf("Testing PyTorch model: %s\n", model_path);
+
+    if (!initialize_pytorch(model_path)) {
+        printf("Failed to initialize PyTorch model.\n");
+        return;
+    }
+
+    // Create a test board
+    Board board;
+    setup_default_position(&board);
+
+    // Evaluate the position
+    float eval = evaluate_pytorch(&board);
+    printf("PyTorch evaluation of starting position: %.2f centipawns\n", eval);
+
+    // Make a standard opening move (e4)
+    Move e4 = {12, 28, PAWN, EMPTY, EMPTY, 0, 0, 0, 0};
+    make_move(&board, &e4);
+
+    // Evaluate again
+    eval = evaluate_pytorch(&board);
+    printf("PyTorch evaluation after e4: %.2f centipawns\n", eval);
+
+    // Clean up
+    shutdown_pytorch();
+}
+
 // Update main function to include the new command
 int main(int argc, char **argv) {
     printf("TDChess - A chess engine\n\n");
@@ -550,6 +579,14 @@ int main(int argc, char **argv) {
 
             bool success = generate_self_play_games(model_path, output_path, num_games, temperature);
             return success ? 0 : 1;
+        } else if (strcmp(argv[1], "test-pytorch") == 0) {
+            if (argc < 3) {
+                printf("Usage: %s test-pytorch <model_path>\n", argv[0]);
+                return 1;
+            }
+
+            test_pytorch(argv[2]);
+            return 0;
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");

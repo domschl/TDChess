@@ -1,55 +1,31 @@
 #!/usr/bin/env python3
-# filepath: /Users/dsc/Codeberg/TDChess/train_neural.py
 """
-Improved neural network training for TDChess
+Neural network training for TDChess using PyTorch
 """
-
-import json
 import argparse
+import json
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, random_split
 import matplotlib.pyplot as plt
+from torch.utils.data import Dataset, DataLoader, random_split
 from pathlib import Path
-import time
 
 class ChessDataset(Dataset):
     """Chess position dataset"""
     
     def __init__(self, json_file):
-        """
-        Args:
-            json_file (string): Path to the JSON file with positions
-        """
-        print(f"Loading dataset from {json_file}...")
         with open(json_file, 'r') as f:
             data = json.load(f)
         
         self.positions = []
         self.evaluations = []
-        self.fens = []
         
-        for pos in data['positions']:
-            tensor = np.array(pos['board']['tensor'], dtype=np.float32)
-            # Reshape from flat to 4D: [channels, height, width]
-            tensor = tensor.reshape(14, 8, 8)
-            self.positions.append(tensor)
-            self.evaluations.append(pos['evaluation'])
-            self.fens.append(pos['board']['fen'])
-        
-        # Convert to numpy arrays
-        self.positions = np.array(self.positions, dtype=np.float32)
-        self.evaluations = np.array(self.evaluations, dtype=np.float32)
-        
-        # Normalize evaluations to a reasonable range for tanh activation
-        # Typical chess engines use centipawns, so divide by 100 to get pawn units
-        self.evaluations_raw = self.evaluations.copy()
-        self.evaluations = np.clip(self.evaluations / 100.0, -1.0, 1.0)
-        
-        print(f"Loaded {len(self.positions)} positions")
-        print(f"Evaluation stats - Min: {self.evaluations.min():.2f}, Max: {self.evaluations.max():.2f}, Mean: {self.evaluations.mean():.2f}")
+        for pos in data["positions"]:
+            self.positions.append(torch.tensor(pos["board"]["tensor"], dtype=torch.float32).reshape(14, 8, 8))
+            # Explicitly convert evaluation to float32
+            self.evaluations.append(torch.tensor(float(pos["evaluation"]), dtype=torch.float32))
     
     def __len__(self):
         return len(self.positions)
@@ -58,73 +34,85 @@ class ChessDataset(Dataset):
         return self.positions[idx], self.evaluations[idx]
 
 
+class ResidualBlock(nn.Module):
+    """Residual block with two convolutional layers"""
+    
+    def __init__(self, channels):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(channels)
+        self.relu = nn.ReLU()
+        
+    def forward(self, x):
+        residual = x
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += residual  # Skip connection
+        out = self.relu(out)
+        return out
+
+
 class ChessNet(nn.Module):
     """Improved neural network for chess position evaluation"""
     
     def __init__(self):
         super(ChessNet, self).__init__()
         
-        # First convolutional block with batch norm
-        self.conv_block1 = nn.Sequential(
-            nn.Conv2d(14, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
+        # Input: 14 channels (6 piece types * 2 colors + side to move + en passant)
+        # First block
+        self.conv1 = nn.Conv2d(14, 64, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(64)
         
-        # Second convolutional block
-        self.conv_block21 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True)
-        )
-        self.conv_block22 = nn.Sequential(
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
-        )
-        self.conv_block23 = nn.Sequential(
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
-        )
-        self.conv_block24 = nn.Sequential(
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
-        )
-        
-        
-        # Third convolutional block
-        self.conv_block3 = nn.Sequential(
-            nn.Conv2d(256, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
+        # Residual blocks
+        self.residual_blocks = nn.ModuleList([
+            ResidualBlock(64) for _ in range(5)  # Add 5 residual blocks
+        ])
         
         # Value head
-        self.value_head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * 8 * 8, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),  # Add dropout to prevent overfitting
-            nn.Linear(256, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, 1),
-            nn.Tanh()  # Output between -1 and 1
-        )
+        self.value_conv = nn.Conv2d(64, 32, kernel_size=1)
+        self.value_bn = nn.BatchNorm2d(32)
+        self.value_fc1 = nn.Linear(32 * 8 * 8, 128)
+        self.value_fc2 = nn.Linear(128, 1)
+        
+        # Activation functions
+        self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
+        
+        # Proper weight initialization
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
-        x = self.conv_block1(x)
-        x = self.conv_block21(x)
-        x = self.conv_block22(x)
-        x = self.conv_block23(x)
-        x = self.conv_block24(x)
-        x = self.conv_block3(x)
-        return self.value_head(x)
+        # Initial convolution
+        x = self.bn1(self.relu(self.conv1(x)))
+        
+        # Residual blocks
+        for block in self.residual_blocks:
+            x = block(x)
+        
+        # Value head
+        value = self.relu(self.value_bn(self.value_conv(x)))
+        value = value.view(-1, 32 * 8 * 8)
+        value = self.relu(self.value_fc1(value))
+        value = self.tanh(self.value_fc2(value))
+        
+        return value
 
 
 def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1):
-    """Train the neural network and export to ONNX"""
+    """Train the neural network with improved convergence"""
     
     # Load dataset
     full_dataset = ChessDataset(dataset_path)
@@ -143,14 +131,24 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     # Create model
     model = ChessNet()
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.5)
+    # Higher initial learning rate
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    
+    # Better learning rate scheduler
+    scheduler = optim.lr_scheduler.OneCycleLR(
+        optimizer, 
+        max_lr=learning_rate*10,  # Peak at 10x the base learning rate
+        epochs=epochs,
+        steps_per_epoch=len(train_loader),
+        pct_start=0.1,  # Warm up for 10% of training
+        div_factor=10.0,  # Start with lr/10
+        final_div_factor=100.0  # End with lr/1000
+    )
     
     # Train model
     device = torch.device("cuda" if torch.cuda.is_available() else 
-                         "mps" if torch.backends.mps.is_available() else "cpu")
+                            "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
     model.to(device)
     
@@ -164,66 +162,92 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     patience_counter = 0
     best_model_path = Path(output_model).with_suffix('.best.pt')
     
+    # Track gradients and weights to detect problems
+    grad_norms = []
+    weight_norms = []
+    
     for epoch in range(epochs):
-        start_time = time.time()
+        # Training phase
         model.train()
-        train_loss = 0.0
+        running_loss = 0.0
+        epoch_grad_norm = 0.0
+        epoch_weight_norm = 0.0
+        num_batches = 0
         
-        for positions, evaluations in train_loader:
-            positions = positions.to(device)
-            evaluations = evaluations.to(device).unsqueeze(1)
+        for inputs, targets in train_loader:
+            # Convert to float32 before moving to device
+            inputs = inputs.to(torch.float32).to(device)
+            targets = targets.to(torch.float32).to(device).view(-1, 1)
             
-            # Zero the parameter gradients
+            # Scale targets - this can help convergence if evaluations are in centipawns
+            targets = targets / 100.0  # Scale down if evaluations are in centipawns
+            
             optimizer.zero_grad()
-            
-            # Forward pass
-            outputs = model(positions)
-            loss = criterion(outputs, evaluations)
-            
-            # Backward pass and optimize
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
             loss.backward()
-            optimizer.step()
             
-            train_loss += loss.item() * positions.size(0)
+            # Gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
+            # Track gradients and weights
+            total_grad_norm = 0.0
+            total_weight_norm = 0.0
+            for p in model.parameters():
+                if p.grad is not None:
+                    total_grad_norm += p.grad.data.norm(2).item() ** 2
+                total_weight_norm += p.data.norm(2).item() ** 2
+            
+            epoch_grad_norm += total_grad_norm ** 0.5
+            epoch_weight_norm += total_weight_norm ** 0.5
+            num_batches += 1
+            
+            optimizer.step()
+            scheduler.step()  # Step per batch with OneCycleLR
+            
+            running_loss += loss.item() * inputs.size(0)
         
-        # Calculate average training loss
-        train_loss = train_loss / len(train_loader.dataset)
+        # Average norms for the epoch
+        grad_norms.append(epoch_grad_norm / num_batches)
+        weight_norms.append(epoch_weight_norm / num_batches)
+        
+        train_loss = running_loss / len(train_dataset)
         train_losses.append(train_loss)
         
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for positions, evaluations in val_loader:
-                positions = positions.to(device)
-                evaluations = evaluations.to(device).unsqueeze(1)
-                outputs = model(positions)
-                loss = criterion(outputs, evaluations)
-                val_loss += loss.item() * positions.size(0)
+        # Print debug info about gradients and weights
+        if epoch % 5 == 0:
+            print(f"Gradient norm: {grad_norms[-1]:.6f}, Weight norm: {weight_norms[-1]:.6f}")
         
-        val_loss = val_loss / len(val_loader.dataset)
+        # Validation phase with the same target scaling
+        model.eval()
+        running_val_loss = 0.0
+        with torch.no_grad():
+            for inputs, targets in val_loader:
+                inputs = inputs.to(torch.float32).to(device)
+                targets = targets.to(torch.float32).to(device).view(-1, 1)
+                targets = targets / 100.0  # Apply the same scaling
+                
+                outputs = model(inputs)
+                val_loss = criterion(outputs, targets)
+                running_val_loss += val_loss.item() * inputs.size(0)
+        
+        val_loss = running_val_loss / len(val_dataset)
         val_losses.append(val_loss)
         
-        # Update learning rate scheduler
-        scheduler.step(val_loss)
+        # Print progress
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, LR: {scheduler.get_last_lr()[0]:.6f}")
         
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), best_model_path)
             patience_counter = 0
-            print(f"Saved best model with validation loss: {best_val_loss:.6f}")
+            print(f"New best model saved with validation loss: {val_loss:.6f}")
         else:
             patience_counter += 1
-        
-        # Print statistics
-        epoch_time = time.time() - start_time
-        print(f"Epoch {epoch+1}/{epochs} | {epoch_time:.1f}s | Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
-        
-        # Early stopping
-        if patience_counter >= patience:
-            print(f"Early stopping after {epoch+1} epochs")
-            break
+            if patience_counter >= patience:
+                print(f"Early stopping after {epoch+1} epochs")
+                break
     
     # Load best model for export
     model.load_state_dict(torch.load(best_model_path))
@@ -240,37 +264,20 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     plt.yscale('log')
     plt.savefig(Path(output_model).with_suffix('.png'))
     
-    # Export to ONNX
+    # Save model in TorchScript format for C++ inference
     dummy_input = torch.randn(1, 14, 8, 8, device=device)
-    
-    torch.onnx.export(
-        model,
-        dummy_input,
-        output_model,
-        export_params=True,
-        opset_version=12,
-        do_constant_folding=True,
-        input_names=['input'],
-        output_names=['output'],
-        dynamic_axes={'input': {0: 'batch_size'},
-                     'output': {0: 'batch_size'}}
-    )
+    traced_script_module = torch.jit.trace(model, dummy_input)
+    traced_script_module.save(output_model)
     
     print(f"Model exported to {output_model}")
     
     # Verify model with a sample evaluation
     if len(full_dataset) > 0:
-        sample_idx = np.random.randint(0, len(full_dataset))
-        sample_pos = torch.tensor(full_dataset.positions[sample_idx:sample_idx+1]).to(device)
-        sample_eval = full_dataset.evaluations_raw[sample_idx]
-        
+        sample_input, sample_target = full_dataset[0]
+        sample_input = sample_input.unsqueeze(0).to(device)
         with torch.no_grad():
-            model_output = model(sample_pos).item() * 100  # Scale back to centipawns
-        
-        print("\nSample evaluation:")
-        print(f"FEN: {full_dataset.fens[sample_idx]}")
-        print(f"Ground truth: {sample_eval:.2f}")
-        print(f"Model prediction: {model_output:.2f}")
+            sample_output = model(sample_input)
+        print(f"Sample evaluation - Target: {sample_target:.6f}, Model output: {sample_output.item():.6f}")
     
     return model
 
@@ -279,7 +286,7 @@ def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Train a neural network for chess evaluation')
     parser.add_argument('--dataset', type=str, required=True, help='Path to dataset JSON file')
-    parser.add_argument('--output', type=str, default='chess_model.onnx', help='Output ONNX model path')
+    parser.add_argument('--output', type=str, default='chess_model.pt', help='Output PyTorch model path')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size for training')
     parser.add_argument('--learning-rate', type=float, default=0.0001, help='Initial learning rate')

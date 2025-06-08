@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <inttypes.h>
 
 // Array of PERFT test data
 static const PerftData perftData[] = {
@@ -235,7 +236,7 @@ void perft_detail(Board *board, int depth) {
             }
         }
 
-        printf("%s: %lu\n", move_str, nodes);
+        printf("%s: %" PRIu64 "\n", move_str, nodes);
     }
 }
 
@@ -285,7 +286,7 @@ void test_perft(int max_depth) {
         double time_taken = ((double)(end - start)) / CLOCKS_PER_SEC;
         double nodes_per_second = (time_taken > 0) ? (nodes / time_taken) : 0;
 
-        printf("Depth %d: %lu nodes in %.2f seconds (%.0f nodes/second)\n",
+        printf("Depth %d: %" PRIu64 " nodes in %.2f seconds (%.0f nodes/second)\n",
                depth, nodes, time_taken, nodes_per_second);
 
         // Known perft values for the starting position
@@ -294,7 +295,7 @@ void test_perft(int max_depth) {
             if (nodes == known_perft[depth]) {
                 printf("✓ Correct\n");
             } else {
-                printf("✗ Incorrect. Expected: %lu\n", known_perft[depth]);
+                printf("✗ Incorrect. Expected: %" PRIu64 "\n", known_perft[depth]);
             }
         }
     }
@@ -338,12 +339,13 @@ void run_perft_tests(int max_depth) {
 
             if (nodes == expected) {
                 passed++;
-                printf("  Depth %d: %lu nodes (%.0f nodes/second) ✓\n",
+                printf("  Depth %d: %" PRIu64 " nodes (%.0f nodes/second) ✓\n",
                        depth, nodes, nodes_per_second);
             } else {
                 test_passed = false;
-                printf("  Depth %d: %lu nodes (%.0f nodes/second) ✗ Expected: %lu\n",
-                       depth, nodes, nodes_per_second, expected);
+                printf("  Depth %d: %" PRIu64 " nodes (%.0f nodes/second) ✗ Expected: %lu\n",
+                       depth,
+                       nodes, nodes_per_second, expected);
             }
 
             // Don't continue to higher depths if a test fails
