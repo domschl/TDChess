@@ -61,6 +61,7 @@ void init_board(Board *board);
 void setup_default_position(Board *board);
 bool parse_fen(Board *board, const char *fen);
 bool board_to_fen(const Board *board, char *buffer, size_t buffer_size);
+void square_to_algebraic(int square, char *buffer); // New function
 
 // Board utility functions
 Piece get_piece(const Board *board, int square);

@@ -23,22 +23,25 @@ float evaluate_position(const Board *board) {
 
     switch (current_eval_type) {
     case EVAL_NEURAL:
-        // evaluate_neural (from neural.c) is assumed to return a score
-        // from the perspective of board->side_to_move, in pawn units.
-        float nn_score_current_player_perspective = evaluate_neural(board);
+        // evaluate_neural returns score in CENTIPAWNS from CURRENT PLAYER's perspective.
+        float nn_score_current_player_centipawns = evaluate_neural(board);
 
+        float nn_score_white_perspective_centipawns;
         if (board->side_to_move == WHITE) {
-            // If White is to move, the score from current player's perspective is already White's perspective.
-            score_pawn_units = nn_score_current_player_perspective;
+            // If White is to move, current player's score is already from White's perspective (relative to White)
+            // but evaluate_neural gives it from White's actual view.
+            nn_score_white_perspective_centipawns = nn_score_current_player_centipawns;
         } else {
-            // If Black is to move, a positive score for current player (Black) is bad for White.
+            // If Black is to move, a positive score from current player (Black) is bad for White.
             // So, negate it to get White's perspective.
-            score_pawn_units = -nn_score_current_player_perspective;
+            nn_score_white_perspective_centipawns = -nn_score_current_player_centipawns;
         }
+        // Convert to PAWN UNITS for evaluate_position's contract
+        score_pawn_units = nn_score_white_perspective_centipawns / 100.0f;
         break;
     case EVAL_BASIC:
     default:
-        // evaluate_basic will be modified to return score from White's perspective directly, in pawn units.
+        // evaluate_basic returns score from White's perspective directly, in pawn units.
         score_pawn_units = evaluate_basic(board);
         break;
     }

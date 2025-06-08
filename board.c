@@ -408,6 +408,19 @@ int pop_lsb(Bitboard *bb) {
     return square;
 }
 
+// Convert a square index to algebraic notation (e.g., "a1", "h8")
+void square_to_algebraic(int square, char *buffer) {
+    if (square < 0 || square > 63 || buffer == NULL) {
+        if (buffer) buffer[0] = '\0';
+        return;
+    }
+    int file = square % 8;
+    int rank = square / 8;
+    buffer[0] = 'a' + file;
+    buffer[1] = '1' + rank;
+    buffer[2] = '\0';
+}
+
 // Determine if a square is attacked by a side
 bool is_square_attacked(const Board *board, int square, Color by_side) {
     int from_file = SQUARE_FILE(square);

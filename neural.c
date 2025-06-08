@@ -306,37 +306,39 @@ void shutdown_neural(void) {
 }
 
 // Evaluate a position using the neural network
+// Returns score in CENTIPAWNS from the CURRENT PLAYER's perspective.
 float evaluate_neural(const Board* board) {
 #if HAVE_ONNXRUNTIME
     if (!global_evaluator || !global_evaluator->session) {
-        return evaluate_basic(board); // Fall back to basic evaluation
+        // Fallback if NN not initialized
+        float basic_eval_white_view_pawn_units = evaluate_basic(board); // White's perspective, pawn units
+        // Convert to current player's perspective and scale to centipawns
+        return (board->side_to_move == WHITE) ? (basic_eval_white_view_pawn_units * 100.0f) : (-basic_eval_white_view_pawn_units * 100.0f);
     }
-    
+
     // Prepare input tensor
     float input_tensor[BOARD_SIZE * BOARD_SIZE * INPUT_CHANNELS];
     if (!board_to_planes(board, input_tensor, sizeof(input_tensor))) {
-        return evaluate_basic(board);
+        // Fallback if board_to_planes fails
+        float basic_eval_white_view_pawn_units = evaluate_basic(board);
+        return (board->side_to_move == WHITE) ? (basic_eval_white_view_pawn_units * 100.0f) : (-basic_eval_white_view_pawn_units * 100.0f);
     }
-    
+
     // Run neural evaluation
-    float output = 0.0f;
-    if (run_neural_inference(input_tensor, &output)) {
-        // Scale the output back to centipawns
-        output = output * 100.0f;
-        
-        // Negate the output if it's black's turn (evaluation is from white's perspective)
-        if (board->side_to_move == BLACK) {
-            output = -output;
-        }
-        
-        return output;
+    float nn_raw_output; // Assume this is in pawn units, from current player's perspective (e.g., tanh output range [-1, 1])
+    if (run_neural_inference(input_tensor, &nn_raw_output)) {
+        // Scale to centipawns, still from current player's perspective
+        return nn_raw_output * 100.0f;
     }
     
     // Fall back to basic evaluation if neural inference fails
-    return evaluate_basic(board);
+    float basic_eval_white_view_pawn_units = evaluate_basic(board);
+    return (board->side_to_move == WHITE) ? (basic_eval_white_view_pawn_units * 100.0f) : (-basic_eval_white_view_pawn_units * 100.0f);
 #else
     // Fall back to basic evaluation if ONNX Runtime is not available
-    return evaluate_basic(board);
+    float basic_eval_white_view_pawn_units = evaluate_basic(board); // White's perspective, pawn units
+    // Convert to current player's perspective and scale to centipawns
+    return (board->side_to_move == WHITE) ? (basic_eval_white_view_pawn_units * 100.0f) : (-basic_eval_white_view_pawn_units * 100.0f);
 #endif
 }
 
