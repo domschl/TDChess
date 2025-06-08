@@ -48,6 +48,15 @@ include_directories(${TORCH_INCLUDE_DIRS})
 # Create executable
 add_executable(TDChess ${SOURCES})
 
+# Add GPU support option and definition
+option(WITH_GPU_SUPPORT "Enable GPU support (CUDA/MPS) for PyTorch" ON)
+if(WITH_GPU_SUPPORT)
+    target_compile_definitions(TDChess PRIVATE USE_GPU_SUPPORT)
+    message(STATUS "GPU support enabled for PyTorch.")
+else()
+    message(STATUS "GPU support disabled for PyTorch (CPU only).")
+endif()
+
 # Link libraries
 target_link_libraries(TDChess ${TORCH_LIBRARIES} m)
 

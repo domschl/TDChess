@@ -1,8 +1,10 @@
 #include "pytorch_binding.h"
 #include "neural.h"  // For board_to_planes function
-#include <torch/script.h>
+#include <torch/script.h> // This should be always included for torch::jit::script::Module, torch::Device, etc.
+#ifdef USE_GPU_SUPPORT
 #include <torch/cuda.h>
 #include <torch/mps.h>
+#endif
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -10,8 +12,10 @@
 // Global state for PyTorch model
 static std::shared_ptr<torch::jit::script::Module> model = nullptr;
 static bool is_initialized = false;
-static torch::Device device = torch::kCPU;
-static bool mps_available = false;
+static torch::Device device = torch::kCPU; // Default to CPU
+#ifdef USE_GPU_SUPPORT
+static bool mps_available = false; // Only relevant if USE_GPU_SUPPORT is defined
+#endif
 
 // Constants for evaluation scaling
 static const float MAX_EVAL = 20.0f;
@@ -27,40 +31,47 @@ bool initialize_pytorch(const char *model_path) {
     std::cout << "Initializing PyTorch model from: " << model_path << std::endl;
 
     try {
-        // Check available devices with better error handling
+        // Device selection logic
+    #ifdef USE_GPU_SUPPORT
         if (torch::cuda::is_available()) {
             std::cout << "CUDA is available, using GPU" << std::endl;
             device = torch::Device(torch::kCUDA);
         } else {
-            // Check for MPS with proper initialization
-            mps_available = torch::hasMPS();
+            mps_available = torch::hasMPS(); // torch::hasMPS() might still be callable without the full MPS header for linking
             if (mps_available) {
                 std::cout << "MPS (Metal) is available, attempting to use Apple GPU" << std::endl;
                 try {
-                    // Explicitly initialize MPS
-                    torch::mps::synchronize();
+                    torch::mps::synchronize(); // This call requires the MPS header and library symbols
                     device = torch::Device(torch::kMPS);
                 } catch (const c10::Error &e) {
                     std::cerr << "MPS initialization failed: " << e.what() << std::endl;
                     std::cerr << "Falling back to CPU" << std::endl;
                     device = torch::Device(torch::kCPU);
-                    mps_available = false;
+                    mps_available = false; // Ensure this is reset
                 }
             } else {
-                std::cout << "Using CPU (no GPU acceleration available)" << std::endl;
+                std::cout << "CUDA and MPS not available, using CPU" << std::endl;
                 device = torch::Device(torch::kCPU);
             }
         }
+    #else // !USE_GPU_SUPPORT
+        std::cout << "GPU support disabled, using CPU." << std::endl;
+        device = torch::Device(torch::kCPU); // Explicitly set to CPU
+    #endif // USE_GPU_SUPPORT
 
         // Load the model
         model = std::make_shared<torch::jit::script::Module>(torch::jit::load(model_path));
-        model->to(device);
+        model->to(device); // Move model to the selected device
         model->eval();
 
         is_initialized = true;
+    #ifdef USE_GPU_SUPPORT
         std::cout << "PyTorch model initialized successfully on "
-                  << (device.is_cuda() ? "CUDA" : (device.is_mps() ? "MPS" : "CPU"))
+                  << (device.is_cuda() ? "CUDA" : (mps_available && device.is_mps() ? "MPS" : "CPU"))
                   << std::endl;
+    #else
+        std::cout << "PyTorch model initialized successfully on CPU (GPU support disabled)." << std::endl;
+    #endif
         return true;
     } catch (const c10::Error &e) {
         std::cerr << "Error initializing PyTorch model: " << e.what() << std::endl;
@@ -137,8 +148,10 @@ float evaluate_pytorch(const Board *board) {
     } catch (const c10::Error &e) {
         std::cerr << "Error running PyTorch inference: " << e.what() << std::endl;
 
+    #ifdef USE_GPU_SUPPORT
         // If using MPS and getting an error, try to fallback to CPU for this evaluation
-        if (device.is_mps()) {
+        if (device.is_mps()) { // This check itself is fine, but the inner model.to(torch::kCPU) might be an issue if MPS symbols aren't linked.
+                               // However, this code block is now only compiled if USE_GPU_SUPPORT is defined.
             try {
                 std::cerr << "Attempting fallback to CPU for this evaluation..." << std::endl;
 
@@ -149,7 +162,7 @@ float evaluate_pytorch(const Board *board) {
 
                 std::vector<float> tensor_data(tensor_size);
                 if (!board_to_planes(board, tensor_data.data(), tensor_size * sizeof(float))) {
-                    return 0.0f;
+                    return 0.0f; // Ensure return on failure
                 }
 
                 auto cpu_options = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
@@ -160,8 +173,8 @@ float evaluate_pytorch(const Board *board) {
                                                .clone();
 
                 // Get a CPU copy of the model for this evaluation
-                auto cpu_model = model->clone();
-                cpu_model.to(torch::kCPU);
+                auto cpu_model = model->clone(); // clone() should be fine.
+                cpu_model.to(torch::kCPU);      // to(CPU) is fine.
 
                 // Run inference on CPU
                 torch::NoGradGuard no_grad;
@@ -169,17 +182,24 @@ float evaluate_pytorch(const Board *board) {
                 cpu_inputs.push_back(cpu_tensor);
 
                 torch::Tensor cpu_output = cpu_model.forward(cpu_inputs).toTensor();
+                // Apply tanh activation to match training (if it was also applied in main path before error)
+                cpu_output = cpu_output.tanh();
                 float eval_value = cpu_output.item<float>();
-                float centipawns = eval_value * 100.0f;
+
+                // Convert normalized [-1,1] output back to centipawns
+                float pawn_units = eval_value * MAX_EVAL;
+                float centipawns = pawn_units * 100.0f;
+
 
                 return (board->side_to_move == WHITE) ? centipawns : -centipawns;
             } catch (const c10::Error &cpu_err) {
                 std::cerr << "CPU fallback also failed: " << cpu_err.what() << std::endl;
-                return 0.0f;
+                return 0.0f; // Ensure return on failure
             }
         }
+    #endif // USE_GPU_SUPPORT
 
-        return 0.0f;
+        return 0.0f; // Default return if not MPS error or if USE_GPU_SUPPORT is not defined
     }
 }
 

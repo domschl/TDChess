@@ -26,7 +26,7 @@ jobs:
 
     - name: Configure CMake
       # The extracted folder is named 'libtorch', so CMAKE_PREFIX_PATH should point to it.
-      run: cd build && cmake .. -DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/libtorch
+      run: cd build && cmake .. -DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/libtorch -DWITH_GPU_SUPPORT=OFF
 
     - name: Build
       run: cd build && cmake --build .
