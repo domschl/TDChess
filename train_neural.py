@@ -13,19 +13,36 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from pathlib import Path
 
 class ChessDataset(Dataset):
-    """Chess position dataset"""
+    """Chess position dataset with normalization for wide evaluation range"""
     
-    def __init__(self, json_file):
+    def __init__(self, json_file, max_eval=20.0):
         with open(json_file, 'r') as f:
             data = json.load(f)
         
         self.positions = []
         self.evaluations = []
+        self.max_eval = max_eval
+        
+        # Track clipped evaluations for reporting
+        clipped_count = 0
+        total_count = len(data["positions"])
         
         for pos in data["positions"]:
             self.positions.append(torch.tensor(pos["board"]["tensor"], dtype=torch.float32).reshape(14, 8, 8))
-            # Explicitly convert evaluation to float32
-            self.evaluations.append(torch.tensor(float(pos["evaluation"]), dtype=torch.float32))
+            
+            # Clip extreme evaluations to a reasonable range
+            raw_eval = float(pos["evaluation"])
+            clipped_eval = max(min(raw_eval, max_eval), -max_eval)
+            
+            if abs(raw_eval) > max_eval:
+                clipped_count += 1
+                
+            # Normalize to [-1, 1] range for tanh output
+            normalized_eval = clipped_eval / max_eval
+            self.evaluations.append(normalized_eval)
+        
+        if clipped_count > 0:
+            print(f"Notice: {clipped_count}/{total_count} positions ({100*clipped_count/total_count:.1f}%) had evaluations clipped to ±{max_eval}")
     
     def __len__(self):
         return len(self.positions)
@@ -117,11 +134,11 @@ class ChessNet(nn.Module):
         return value
 
 
-def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1):
-    """Train the neural network with fixes for convergence issues"""
+def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1, max_eval=20.0):
+    """Train the neural network with better handling of wide evaluation range"""
     
-    # Load dataset
-    full_dataset = ChessDataset(dataset_path)
+    # Load dataset with normalization
+    full_dataset = ChessDataset(dataset_path, max_eval=max_eval)
     
     # Print dataset statistics
     evals = [y for _, y in full_dataset]
@@ -177,7 +194,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     
     optimizer.zero_grad()
     outputs = model(inputs)
-    loss = criterion(torch.tanh(outputs), targets)  # Apply tanh to constrain outputs
+    loss = criterion(outputs, targets)  # No tanh needed here now
     loss.backward()
     
     # Check if gradients are flowing
@@ -211,7 +228,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
             optimizer.zero_grad()
             outputs = model(inputs)
             # Important: Apply tanh to model outputs to constrain to [-1, 1]
-            loss = criterion(torch.tanh(outputs), targets)
+            loss = criterion(outputs, targets)
             loss.backward()
             
             # Gradient clipping to prevent exploding gradients
@@ -243,7 +260,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
                 
                 outputs = model(inputs)
                 # Apply same tanh to validation
-                val_loss = criterion(torch.tanh(outputs), targets)
+                val_loss = criterion(outputs, targets)
                 running_val_loss += val_loss.item() * inputs.size(0)
         
         val_loss = running_val_loss / len(val_dataset)
@@ -258,7 +275,12 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), best_model_path)
+            # When saving the model, store the max_eval value for later use
+            model_info = {
+                "state_dict": model.state_dict(),
+                "max_eval": max_eval
+            }
+            torch.save(model_info, best_model_path)
             patience_counter = 0
             print(f"New best model saved with validation loss: {val_loss:.6f}")
         else:
@@ -268,7 +290,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
                 break
     
     # Load best model for export
-    model.load_state_dict(torch.load(best_model_path))
+    model.load_state_dict(torch.load(best_model_path)["state_dict"])
     model.eval()
     
     # Plot training progress

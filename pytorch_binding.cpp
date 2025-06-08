@@ -13,6 +13,9 @@ static bool is_initialized = false;
 static torch::Device device = torch::kCPU;
 static bool mps_available = false;
 
+// Constants for evaluation scaling
+static const float MAX_EVAL = 20.0f;
+
 extern "C" {
 
 bool initialize_pytorch(const char *model_path) {
@@ -121,8 +124,12 @@ float evaluate_pytorch(const Board *board) {
         // Get scalar value (assuming model outputs a single value)
         float eval_value = output.item<float>();
 
-        // Convert to centipawns and player perspective
-        float centipawns = eval_value * 100.0f;
+        // Convert normalized [-1,1] output back to centipawns
+        // First to pawn units by multiplying by MAX_EVAL
+        float pawn_units = eval_value * MAX_EVAL;
+
+        // Then to centipawns
+        float centipawns = pawn_units * 100.0f;
 
         // Return the score from current player's perspective
         // The model gives evaluation from white's perspective
