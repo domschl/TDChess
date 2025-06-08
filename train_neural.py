@@ -28,6 +28,7 @@ class ChessDataset(Dataset):
         total_count = len(data["positions"])
         
         for pos in data["positions"]:
+            # Explicitly use float32 for tensor data
             self.positions.append(torch.tensor(pos["board"]["tensor"], dtype=torch.float32).reshape(14, 8, 8))
             
             # Clip extreme evaluations to a reasonable range
@@ -37,8 +38,8 @@ class ChessDataset(Dataset):
             if abs(raw_eval) > max_eval:
                 clipped_count += 1
                 
-            # Normalize to [-1, 1] range for tanh output
-            normalized_eval = clipped_eval / max_eval
+            # Normalize to [-1, 1] range and store as float32
+            normalized_eval = torch.tensor(clipped_eval / max_eval, dtype=torch.float32)
             self.evaluations.append(normalized_eval)
         
         if clipped_count > 0:
@@ -218,16 +219,16 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
         # Training phase
         model.train()
         running_loss = 0.0
-        total_grad_norm = 0.0
-        batch_count = 0
+        epoch_grad_norm = 0.0
+        num_batches = 0
         
         for inputs, targets in train_loader:
-            inputs = inputs.to(device).float()
-            targets = targets.to(device).float().view(-1, 1)
+            # Explicitly convert to float32 before moving to device
+            inputs = inputs.to(torch.float32).to(device)
+            targets = targets.to(torch.float32).to(device).view(-1, 1)
             
             optimizer.zero_grad()
             outputs = model(inputs)
-            # Important: Apply tanh to model outputs to constrain to [-1, 1]
             loss = criterion(outputs, targets)
             loss.backward()
             
@@ -239,8 +240,8 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
             for param in model.parameters():
                 if param.grad is not None:
                     grad_norm += param.grad.norm().item() ** 2
-            total_grad_norm += grad_norm ** 0.5
-            batch_count += 1
+            epoch_grad_norm += grad_norm ** 0.5
+            num_batches += 1
             
             optimizer.step()
             running_loss += loss.item() * inputs.size(0)
@@ -248,18 +249,18 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
         train_loss = running_loss / len(train_dataset)
         train_losses.append(train_loss)
         
-        avg_grad_norm = total_grad_norm / batch_count if batch_count > 0 else 0
+        avg_grad_norm = epoch_grad_norm / num_batches if num_batches > 0 else 0
         
         # Validation phase
         model.eval()
         running_val_loss = 0.0
         with torch.no_grad():
             for inputs, targets in val_loader:
-                inputs = inputs.to(device).float()
-                targets = targets.to(device).float().view(-1, 1)
+                # Explicitly convert to float32 before moving to device
+                inputs = inputs.to(torch.float32).to(device)
+                targets = targets.to(torch.float32).to(device).view(-1, 1)
                 
                 outputs = model(inputs)
-                # Apply same tanh to validation
                 val_loss = criterion(outputs, targets)
                 running_val_loss += val_loss.item() * inputs.size(0)
         
