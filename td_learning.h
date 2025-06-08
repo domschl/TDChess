@@ -33,5 +33,6 @@ typedef struct {
 
 // Generate TD-Lambda dataset from self-play
 bool generate_td_lambda_dataset(const TDLambdaParams *params);
+Move select_move_with_randomness(Board *board, float temperature);
 
 #endif  // TD_LEARNING_H

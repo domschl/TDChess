@@ -11,6 +11,8 @@
 #include "python_binding.h"
 #include "td_learning.h"
 #include "visualization.h"
+#include "self_play.h"
+#include "pytorch_binding.h"  // Add this to your imports
 
 // Add this function declaration at the top of the file with other function declarations
 
@@ -474,6 +476,34 @@ void cmd_td_lambda_training(const char *initial_model, const char *output_model,
     }
 }
 
+void test_pytorch(const char *model_path) {
+    printf("Testing PyTorch model: %s\n", model_path);
+
+    if (!initialize_pytorch(model_path)) {
+        printf("Failed to initialize PyTorch model.\n");
+        return;
+    }
+
+    // Create a test board
+    Board board;
+    setup_default_position(&board);
+
+    // Evaluate the position
+    float eval = evaluate_pytorch(&board);
+    printf("PyTorch evaluation of starting position: %.2f centipawns\n", eval);
+
+    // Make a standard opening move (e4)
+    Move e4 = {12, 28, PAWN, EMPTY, EMPTY, 0, 0, 0, 0};
+    make_move(&board, &e4);
+
+    // Evaluate again
+    eval = evaluate_pytorch(&board);
+    printf("PyTorch evaluation after e4: %.2f centipawns\n", eval);
+
+    // Clean up
+    shutdown_pytorch();
+}
+
 // Update main function to include the new command
 int main(int argc, char **argv) {
     printf("TDChess - A chess engine\n\n");
@@ -526,6 +556,37 @@ int main(int argc, char **argv) {
             float lambda = (argc > 5) ? atof(argv[5]) : 0.7f;
             float temperature = (argc > 6) ? atof(argv[6]) : 1.0f;
             cmd_td_lambda_training(initial_model, output_model, num_games, lambda, temperature);
+        } else if (strcmp(argv[1], "generate-self-play") == 0) {
+            if (argc < 6) {
+                printf("Usage: %s generate-self-play <model_path> <output_path> <num_games> <temperature>\n", argv[0]);
+                return 1;
+            }
+
+            const char *model_path = argv[2];
+            const char *output_path = argv[3];
+            int num_games = atoi(argv[4]);
+            float temperature = atof(argv[5]);
+
+            if (num_games <= 0) {
+                printf("Number of games must be positive\n");
+                return 1;
+            }
+
+            if (temperature <= 0.0f) {
+                printf("Temperature must be positive\n");
+                return 1;
+            }
+
+            bool success = generate_self_play_games(model_path, output_path, num_games, temperature);
+            return success ? 0 : 1;
+        } else if (strcmp(argv[1], "test-pytorch") == 0) {
+            if (argc < 3) {
+                printf("Usage: %s test-pytorch <model_path>\n", argv[0]);
+                return 1;
+            }
+
+            test_pytorch(argv[2]);
+            return 0;
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");
@@ -539,6 +600,7 @@ int main(int argc, char **argv) {
             printf("  generate-dataset [file] [count] [depth] - Generate training dataset\n");
             printf("  play-neural [depth] [model] - Play against computer with neural evaluation\n");
             printf("  td-lambda [initial_model] [output_model] [games] [lambda] - Run TD-Lambda training\n");
+            printf("  generate-self-play [model_path] [output_path] [num_games] [temperature] - Generate self-play games\n");
         }
     } else {
         // Default to interactive mode

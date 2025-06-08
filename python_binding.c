@@ -73,50 +73,50 @@ bool export_board_to_json(const Board *board, char *buffer, size_t buffer_size) 
 
     // Build JSON representation
     size_t offset = 0;
-    size_t written = snprintf(buffer + offset, buffer_size - offset, "{\n");
-    if (written < 0 || written >= buffer_size - offset) {
+    int i_written = snprintf(buffer + offset, buffer_size - offset, "{\n");
+    if (i_written < 0 || (size_t)i_written >= buffer_size - offset) {
         printf("Buffer overflow in JSON generation\n");
         free(tensor);
         return false;
     }
-    offset += written;
+    offset += (size_t)i_written;
 
-    written = snprintf(buffer + offset, buffer_size - offset, "        \"tensor\": [");
-    if (written < 0 || written >= buffer_size - offset) {
+    i_written = snprintf(buffer + offset, buffer_size - offset, "        \"tensor\": [");
+    if (i_written < 0 || (size_t)i_written >= buffer_size - offset) {
         printf("Buffer overflow in JSON generation\n");
         free(tensor);
         return false;
     }
-    offset += written;
+    offset += (size_t)i_written;
 
     // Write tensor data as a flat array
     for (size_t i = 0; i < tensor_size; i++) {
         if (i > 0) {
-            written = snprintf(buffer + offset, buffer_size - offset, ", ");
-            if (written < 0 || written >= buffer_size - offset) {
+            i_written = snprintf(buffer + offset, buffer_size - offset, ", ");
+            if (i_written < 0 || (size_t)i_written >= buffer_size - offset) {
                 printf("Buffer overflow in tensor data\n");
                 free(tensor);
                 return false;
             }
-            offset += written;
+            offset += (size_t)i_written;
         }
 
-        written = snprintf(buffer + offset, buffer_size - offset, "%.0f", tensor[i]);
-        if (written < 0 || written >= buffer_size - offset) {
+        i_written = snprintf(buffer + offset, buffer_size - offset, "%.0f", tensor[i]);
+        if (i_written < 0 || (size_t)i_written >= buffer_size - offset) {
             printf("Buffer overflow in tensor data\n");
             free(tensor);
             return false;
         }
-        offset += written;
+        offset += (size_t)i_written;
     }
 
-    written = snprintf(buffer + offset, buffer_size - offset, "],\n");
-    if (written < 0 || written >= buffer_size - offset) {
+    i_written = snprintf(buffer + offset, buffer_size - offset, "],\n");
+    if (i_written < 0 || (size_t)i_written >= buffer_size - offset) {
         printf("Buffer overflow in JSON generation\n");
         free(tensor);
         return false;
     }
-    offset += written;
+    offset += (size_t)i_written;
 
     // Include FEN representation for readability
     char fen[128];
@@ -126,16 +126,16 @@ bool export_board_to_json(const Board *board, char *buffer, size_t buffer_size) 
         return false;
     }
 
-    written = snprintf(buffer + offset, buffer_size - offset, "        \"fen\": \"%s\"\n", fen);
-    if (written < 0 || written >= buffer_size - offset) {
+    i_written = snprintf(buffer + offset, buffer_size - offset, "        \"fen\": \"%s\"\n", fen);
+    if (i_written < 0 || (size_t)i_written >= buffer_size - offset) {
         printf("Buffer overflow in JSON generation\n");
         free(tensor);
         return false;
     }
-    offset += written;
+    offset += (size_t)i_written;
 
-    written = snprintf(buffer + offset, buffer_size - offset, "      }");
-    if (written < 0 || written >= buffer_size - offset) {
+    i_written = snprintf(buffer + offset, buffer_size - offset, "      }");
+    if (i_written < 0 || (size_t)i_written >= buffer_size - offset) {
         printf("Buffer overflow in JSON generation\n");
         free(tensor);
         return false;

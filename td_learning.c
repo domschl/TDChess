@@ -13,7 +13,7 @@
 #include <math.h>
 
 // Random move selection to increase diversity
-static Move select_move_with_randomness(Board *board, float temperature) {
+Move select_move_with_randomness(Board *board, float temperature) {
     // Generate all legal moves
     MoveList moves;
     generate_legal_moves(board, &moves);
@@ -33,35 +33,35 @@ static Move select_move_with_randomness(Board *board, float temperature) {
     // First pass: identify if any moves are losing material immediately
     bool has_non_blunder_moves = false;
     bool is_blunder[MAX_MOVES] = {0};
-    
+
     // Piece values for basic material counting
-    const int piece_values[7] = {0, 100, 320, 330, 500, 900, 20000}; // EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
-    
+    const int piece_values[7] = {0, 100, 320, 330, 500, 900, 20000};  // EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
+
     for (int i = 0; i < moves.count; i++) {
         // Check if move puts a piece on a square attacked by a lower-value piece
         int to_square = moves.moves[i].to;
         int from_square = moves.moves[i].from;
         PieceType moved_piece = board->pieces[from_square].type;
-        
+
         // Skip pawn promotions - these are usually good
         if (moved_piece == PAWN && (to_square >= 56 || to_square <= 7)) {
             has_non_blunder_moves = true;
             continue;
         }
-        
+
         // Make the move to analyze the resulting position
         make_move(board, &moves.moves[i]);
-        
+
         // Now check if the moved piece can be captured
         bool is_hanging = false;
         int moved_piece_value = piece_values[moved_piece];
-        int lowest_attacker_value = 20000; // Initialize to king value
-        
+        int lowest_attacker_value = 20000;  // Initialize to king value
+
         // Check if any opponent pieces attack the destination square
         for (int sq = 0; sq < 64; sq++) {
-            if (board->pieces[sq].type != EMPTY && 
+            if (board->pieces[sq].type != EMPTY &&
                 board->pieces[sq].color == board->side_to_move) {
-                
+
                 // Check if this piece attacks our moved piece
                 Board test_board = *board;
                 // Fix: Initialize all fields in the Move struct
@@ -77,9 +77,8 @@ static Move select_move_with_randomness(Board *board, float temperature) {
                     .captured_piece_color = board->pieces[to_square].color,
                     .old_castle_rights = test_board.castle_rights,
                     .old_en_passant = test_board.en_passant_square,
-                    .old_halfmove_clock = test_board.halfmove_clock
-                };
-                
+                    .old_halfmove_clock = test_board.halfmove_clock};
+
                 if (is_move_legal(&test_board, capture)) {
                     is_hanging = true;
                     int attacker_value = piece_values[board->pieces[sq].type];
@@ -89,10 +88,10 @@ static Move select_move_with_randomness(Board *board, float temperature) {
                 }
             }
         }
-        
+
         // Unmake the move
         unmake_move(board, moves.moves[i]);
-        
+
         // If the piece is hanging and it's a bad trade, mark as blunder
         if (is_hanging && lowest_attacker_value < moved_piece_value) {
             is_blunder[i] = true;
@@ -100,7 +99,7 @@ static Move select_move_with_randomness(Board *board, float temperature) {
             has_non_blunder_moves = true;
         }
     }
-    
+
     // Evaluate all moves
     float scores[MAX_MOVES];
     float max_score = -INFINITY;
@@ -112,15 +111,15 @@ static Move select_move_with_randomness(Board *board, float temperature) {
             scores[i] = -INFINITY;
             continue;
         }
-        
+
         make_move(board, &moves.moves[i]);
-        
+
         // Negate the evaluation to get it from our perspective
         scores[i] = -evaluate_neural(board);
-        
+
         if (scores[i] > max_score) max_score = scores[i];
         if (scores[i] < min_score) min_score = scores[i];
-        
+
         unmake_move(board, moves.moves[i]);
     }
 
@@ -139,7 +138,7 @@ static Move select_move_with_randomness(Board *board, float temperature) {
             // Skip blunders
             continue;
         }
-        
+
         // Adjust scores relative to maximum (for numerical stability)
         scores[i] = exp((scores[i] - max_score) / effective_temp);
         total_probability += scores[i];
@@ -151,7 +150,7 @@ static Move select_move_with_randomness(Board *board, float temperature) {
 
     for (int i = 0; i < moves.count; i++) {
         if (scores[i] == -INFINITY) continue;
-        
+
         cumulative += scores[i];
         if (choice <= cumulative) {
             return moves.moves[i];
@@ -161,14 +160,14 @@ static Move select_move_with_randomness(Board *board, float temperature) {
     // Fallback - find the best non-blunder move
     float best_score = -INFINITY;
     int best_idx = 0;
-    
+
     for (int i = 0; i < moves.count; i++) {
         if (!is_blunder[i] && scores[i] > best_score) {
             best_score = scores[i];
             best_idx = i;
         }
     }
-    
+
     return moves.moves[best_idx];
 }
 
@@ -295,12 +294,12 @@ bool export_td_lambda_dataset(Game *games, int num_games, const TDLambdaParams *
 
             float td_target = 0.0f;
             float lambda_power = 1.0f;
-            float normalization = 0.0f; // To normalize weights if game ends early
+            float normalization = 0.0f;  // To normalize weights if game ends early
 
             // Look ahead up to the end of the game
             for (int future = move + 1; future < game->move_count; future++) {
                 // V(s_t+k+1)
-                float future_eval = game->positions[future].evaluation; // This is from s_future's perspective
+                float future_eval = game->positions[future].evaluation;  // This is from s_future's perspective
 
                 // Adjust future_eval to be from White's perspective
                 // game->positions[future].evaluation is from the perspective of game->positions[future].board.side_to_move
@@ -318,7 +317,7 @@ bool export_td_lambda_dataset(Game *games, int num_games, const TDLambdaParams *
             // Add the final game result with remaining lambda weight
             // game->game_result is already from White's perspective (+1 White win, -1 Black win, 0 Draw)
             lambda_power *= params->lambda;
-            td_target += lambda_power * game->game_result * 100.0f; // Scale game result like evaluations
+            td_target += lambda_power * game->game_result * 100.0f;  // Scale game result like evaluations
             normalization += lambda_power;
 
             if (normalization > 0) {
@@ -328,7 +327,7 @@ bool export_td_lambda_dataset(Game *games, int num_games, const TDLambdaParams *
                 // In this case, the target is just the game result.
                 td_targets[pos_index] = game->game_result * 100.0f;
             }
-            
+
             // Clip the target to be within [-100, 100] as expected by the training script (after it divides by 100)
             if (td_targets[pos_index] > 100.0f) td_targets[pos_index] = 100.0f;
             if (td_targets[pos_index] < -100.0f) td_targets[pos_index] = -100.0f;

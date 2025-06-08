@@ -10,36 +10,47 @@ TDChess is a modular chess engine built in C (C23 standard) that combines tradit
 - **Move Generation**: Legal move generator with bitboard-based attack detection
 - **Evaluation**: 
   - Classical static evaluation function (material, piece positions)
-  - Neural network evaluation using ONNX Runtime
+  - Neural network evaluation using PyTorch C++ API
 - **Search**: 
   - Alpha-beta search with move ordering and transposition tables
   - Configurable search depth
 - **Neural Network**: 
   - 14-channel input (6 piece types × 2 colors + 2 state planes)
-  - Convolutional architecture with value head
-  - ONNX model support for cross-platform compatibility
+  - Residual convolutional architecture with value head
+  - PyTorch models for GPU-accelerated inference (CUDA/MPS)
 - **TD(λ) Learning**: Temporal difference learning with configurable λ parameter
 
 ### Neural Network Architecture
 
-The neural network uses a CNN architecture specialized for chess position evaluation:
+The neural network uses a residual CNN architecture specialized for chess position evaluation:
 
 - **Input**: 14 planes of 8×8 boards
   - 12 piece planes (6 piece types × 2 colors)
   - 1 side-to-move plane
   - 1 en-passant plane
 - **Convolutional Layers**:
-  - First layer: 64 filters with 3×3 kernels
-  - Second layer: 128 filters with 3×3 kernels
-  - Third layer: 64 filters with 3×3 kernels
+  - Initial layer: 64 filters with 3×3 kernels
+  - Multiple residual blocks with skip connections
+  - Batch normalization for training stability
 - **Value Head**:
-  - Fully connected layers (4096 → 256 → 64 → 1)
-  - Final tanh activation to produce evaluation in [-1, 1] range
+  - Fully connected layers (2048 → 64 → 1)
+  - LeakyReLU activations to prevent dead neurons
+  - Evaluation normalization to handle wide range of position values
   - Scaled to centipawns for traditional chess evaluation
 
 ## Building
 
 TDChess uses CMake with Ninja as the build system.
+
+### Dependencies
+
+- C compiler with C23 support
+- C++ compiler with C++17 support (for PyTorch bindings)
+- CMake 3.16+
+- Ninja build system
+- PyTorch C++ libraries (libtorch)
+
+### Build Commands
 
 ```bash
 mkdir build
@@ -82,6 +93,9 @@ TDChess supports multiple modes of operation:
 
 # Play against the engine with neural evaluation
 ./TDChess play-neural [model] [depth]
+
+# Test PyTorch device availability
+./TDChess test-devices
 ```
 
 ### Training Commands
@@ -90,8 +104,14 @@ TDChess supports multiple modes of operation:
 # Generate training dataset
 ./TDChess generate-dataset [file] [count] [depth]
 
+# Generate self-play games
+./TDChess generate-self-play [model.pt] [output.json] [games] [temperature]
+
 # Run TD-Lambda training cycle
-./TDChess td-lambda [initial_model] [output_model] [games] [lambda]
+./TDChess td-lambda [initial_model.pt] [output_model.pt] [games] [lambda]
+
+# Convert between model formats
+./TDChess convert-model [input_model] [output_model.pt]
 ```
 
 ### Training pipeline
@@ -107,45 +127,47 @@ Example training workflow:
 
 ```
 # Generate initial dataset
-./TDChess generate-dataset chess_dataset.json 10000 3
+./TDChess generate-dataset model/initial_dataset.json 20000 5
 
-# Train initial model
-python train_neural.py --dataset chess_dataset.json --output chess_model.onnx --epochs 500 --batch-size 128
+# Analyze dataset (optional)
+python diagnose_dataset.py model/initial_dataset.json
 
-# Run TD-Lambda training
-./TDChess td-lambda chess_model.onnx chess_model_improved.onnx 200 0.7
+# Run the complete training pipeline
+python tdchess_pipeline.py
 
 # Test the improved model
-./TDChess play-neural chess_model_improved.onnx 4
+./TDChess play-neural model/chess_model_iter_50.pt 4
 ```
 
-or simply use `train_pipeline.sh`.
+### Python Training Components
 
-## Dependencies
+The Python-based training system includes:
 
-- C compiler with C23 support
-- CMake 3.12+
-- Ninja build system
-- UV for the python part
+- train_neural.py: Neural network training with PyTorch
+- tdchess_pipeline.py: End-to-end training pipeline
+- diagnose_dataset.py: Dataset analysis and validation
 
-## TODOs
+### PyTorch Integration
 
-### 9. Integration and Testing (C)
-- Integrate neural evaluation into the main search
-- Implement evaluation caching for performance
-- Create evaluation benchmark tools
+TDChess uses the PyTorch C++ API (libtorch) for neural network inference:
 
-### 10. Tournament Play (C)
-- Set up testing against other engines
-- Implement UCI protocol for compatibility
-- Create analysis mode for position evaluation
+- Hardware Acceleration: Supports CUDA (NVIDIA), MPS (Apple Silicon), and CPU
+- Model Format: Uses TorchScript models (.pt) for efficient deployment
+- Fallback Mechanism: Automatically falls back to CPU if GPU inference fails
 
 ## Project Structure
 
-- `main.c` - Main entry point
-- `board.c/h` - Chess board representation and FEN parsing
-- `movegen.c/h` - Move generation functionality
-- `perft.c/h` - PERFT testing functionality
+- main.c - Main entry point
+- board.c/h - Chess board representation and FEN parsing
+- movegen.c/h - Move generation functionality
+- eval.c/h - Classical evaluation functions
+- neural.c/h - Neural network interface
+- pytorch_binding.cpp/h - PyTorch C++ bindings
+- search.c/h - Alpha-beta search implementation
+- td_learning.c/h - Temporal difference learning
+- self_play.c/h - Self-play game generation
+- perft.c/h - Performance testing
+- visualization.c/h - Board visualization
 
 ## License
 

@@ -1,55 +1,48 @@
 #!/usr/bin/env python3
-# filepath: /Users/dsc/Codeberg/TDChess/train_neural.py
 """
-Improved neural network training for TDChess
+Neural network training for TDChess using PyTorch
 """
-
-import json
 import argparse
+import json
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, random_split
 import matplotlib.pyplot as plt
+from torch.utils.data import Dataset, DataLoader, random_split
 from pathlib import Path
-import time
 
 class ChessDataset(Dataset):
-    """Chess position dataset"""
+    """Chess position dataset with normalization for wide evaluation range"""
     
-    def __init__(self, json_file):
-        """
-        Args:
-            json_file (string): Path to the JSON file with positions
-        """
-        print(f"Loading dataset from {json_file}...")
+    def __init__(self, json_file, max_eval=20.0):
         with open(json_file, 'r') as f:
             data = json.load(f)
         
         self.positions = []
         self.evaluations = []
-        self.fens = []
+        self.max_eval = max_eval
         
-        for pos in data['positions']:
-            tensor = np.array(pos['board']['tensor'], dtype=np.float32)
-            # Reshape from flat to 4D: [channels, height, width]
-            tensor = tensor.reshape(14, 8, 8)
-            self.positions.append(tensor)
-            self.evaluations.append(pos['evaluation'])
-            self.fens.append(pos['board']['fen'])
+        # Track clipped evaluations for reporting
+        clipped_count = 0
+        total_count = len(data["positions"])
         
-        # Convert to numpy arrays
-        self.positions = np.array(self.positions, dtype=np.float32)
-        self.evaluations = np.array(self.evaluations, dtype=np.float32)
+        for pos in data["positions"]:
+            self.positions.append(torch.tensor(pos["board"]["tensor"], dtype=torch.float32).reshape(14, 8, 8))
+            
+            # Clip extreme evaluations to a reasonable range
+            raw_eval = float(pos["evaluation"])
+            clipped_eval = max(min(raw_eval, max_eval), -max_eval)
+            
+            if abs(raw_eval) > max_eval:
+                clipped_count += 1
+                
+            # Normalize to [-1, 1] range for tanh output
+            normalized_eval = clipped_eval / max_eval
+            self.evaluations.append(normalized_eval)
         
-        # Normalize evaluations to a reasonable range for tanh activation
-        # Typical chess engines use centipawns, so divide by 100 to get pawn units
-        self.evaluations_raw = self.evaluations.copy()
-        self.evaluations = np.clip(self.evaluations / 100.0, -1.0, 1.0)
-        
-        print(f"Loaded {len(self.positions)} positions")
-        print(f"Evaluation stats - Min: {self.evaluations.min():.2f}, Max: {self.evaluations.max():.2f}, Mean: {self.evaluations.mean():.2f}")
+        if clipped_count > 0:
+            print(f"Notice: {clipped_count}/{total_count} positions ({100*clipped_count/total_count:.1f}%) had evaluations clipped to ±{max_eval}")
     
     def __len__(self):
         return len(self.positions)
@@ -58,76 +51,98 @@ class ChessDataset(Dataset):
         return self.positions[idx], self.evaluations[idx]
 
 
+class ResidualBlock(nn.Module):
+    """Residual block with two convolutional layers"""
+    
+    def __init__(self, channels):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(channels)
+        self.relu = nn.LeakyReLU(0.1)
+        
+    def forward(self, x):
+        residual = x
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += residual  # Skip connection
+        out = self.relu(out)
+        return out
+
+
 class ChessNet(nn.Module):
-    """Improved neural network for chess position evaluation"""
+    """Neural network for chess position evaluation with fixes for vanishing gradients"""
     
     def __init__(self):
         super(ChessNet, self).__init__()
         
-        # First convolutional block with batch norm
-        self.conv_block1 = nn.Sequential(
-            nn.Conv2d(14, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
+        # Input: 14 channels (6 piece types * 2 colors + side to move + en passant)
+        self.conv1 = nn.Conv2d(14, 64, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(64)
         
-        # Second convolutional block
-        self.conv_block21 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True)
-        )
-        self.conv_block22 = nn.Sequential(
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
-        )
-        self.conv_block23 = nn.Sequential(
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
-        )
-        self.conv_block24 = nn.Sequential(
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True)
-        )
+        # Three residual blocks
+        self.residual_blocks = nn.ModuleList([
+            ResidualBlock(64) for _ in range(3)
+        ])
         
+        # Value head with smaller layers to prevent overfitting
+        self.value_conv = nn.Conv2d(64, 32, kernel_size=1)
+        self.value_bn = nn.BatchNorm2d(32)
+        self.value_fc1 = nn.Linear(32 * 8 * 8, 64)
+        self.value_fc2 = nn.Linear(64, 1)
         
-        # Third convolutional block
-        self.conv_block3 = nn.Sequential(
-            nn.Conv2d(256, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
+        # Important: Use LeakyReLU to prevent dead neurons
+        self.relu = nn.LeakyReLU(0.1)
         
-        # Value head
-        self.value_head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * 8 * 8, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.2),  # Add dropout to prevent overfitting
-            nn.Linear(256, 64),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, 1),
-            nn.Tanh()  # Output between -1 and 1
-        )
+        # Initialize with careful scaling to prevent vanishing gradients
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                # Careful initialization for the final layer
+                if m.out_features == 1:  # Output layer
+                    nn.init.uniform_(m.weight, -0.01, 0.01)
+                else:
+                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
     
     def forward(self, x):
-        x = self.conv_block1(x)
-        x = self.conv_block21(x)
-        x = self.conv_block22(x)
-        x = self.conv_block23(x)
-        x = self.conv_block24(x)
-        x = self.conv_block3(x)
-        return self.value_head(x)
+        # Initial convolution
+        x = self.relu(self.bn1(self.conv1(x)))
+        
+        # Residual blocks
+        for block in self.residual_blocks:
+            x = block(x)
+        
+        # Value head
+        value = self.relu(self.value_bn(self.value_conv(x)))
+        value = value.view(-1, 32 * 8 * 8)
+        value = self.relu(self.value_fc1(value))
+        
+        # No activation on final layer - we'll handle this in the loss function
+        value = self.value_fc2(value)
+        
+        return value
 
 
-def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1):
-    """Train the neural network and export to ONNX"""
+def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1, max_eval=20.0):
+    """Train the neural network with better handling of wide evaluation range"""
     
-    # Load dataset
-    full_dataset = ChessDataset(dataset_path)
+    # Load dataset with normalization
+    full_dataset = ChessDataset(dataset_path, max_eval=max_eval)
+    
+    # Print dataset statistics
+    evals = [y for _, y in full_dataset]
+    print(f"Dataset stats: min={min(evals):.4f}, max={max(evals):.4f}, mean={sum(evals)/len(evals):.4f}")
     
     # Split into training and validation sets
     val_size = int(len(full_dataset) * val_split)
@@ -142,11 +157,17 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     
     # Create model
     model = ChessNet()
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.5)
+    # Use MSE loss but apply tanh to model output to match expected range
+    criterion = nn.MSELoss()
+    
+    # Use Adam with lower learning rate
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate/10)
+    
+    # Simpler learning rate scheduler 
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 'min', patience=5, factor=0.5 
+    )
     
     # Train model
     device = torch.device("cuda" if torch.cuda.is_available() else 
@@ -164,69 +185,112 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     patience_counter = 0
     best_model_path = Path(output_model).with_suffix('.best.pt')
     
+    # Verify model gets gradients in first batch
+    model.train()
+    first_batch = next(iter(train_loader))
+    inputs, targets = first_batch
+    inputs = inputs.to(device).float()
+    targets = targets.to(device).float().view(-1, 1)
+    
+    optimizer.zero_grad()
+    outputs = model(inputs)
+    loss = criterion(outputs, targets)  # No tanh needed here now
+    loss.backward()
+    
+    # Check if gradients are flowing
+    has_grad = False
+    max_grad = 0.0
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_norm = param.grad.norm().item()
+            max_grad = max(max_grad, grad_norm)
+            if grad_norm > 0:
+                has_grad = True
+                print(f"Gradient detected in {name}: {grad_norm:.6f}")
+    
+    if not has_grad:
+        print("WARNING: No gradients detected in first batch! Check model architecture.")
+    else:
+        print(f"Maximum gradient norm: {max_grad:.6f}")
+    
+    # Main training loop
     for epoch in range(epochs):
-        start_time = time.time()
+        # Training phase
         model.train()
-        train_loss = 0.0
+        running_loss = 0.0
+        total_grad_norm = 0.0
+        batch_count = 0
         
-        for positions, evaluations in train_loader:
-            positions = positions.to(device)
-            evaluations = evaluations.to(device).unsqueeze(1)
+        for inputs, targets in train_loader:
+            inputs = inputs.to(device).float()
+            targets = targets.to(device).float().view(-1, 1)
             
-            # Zero the parameter gradients
             optimizer.zero_grad()
-            
-            # Forward pass
-            outputs = model(positions)
-            loss = criterion(outputs, evaluations)
-            
-            # Backward pass and optimize
+            outputs = model(inputs)
+            # Important: Apply tanh to model outputs to constrain to [-1, 1]
+            loss = criterion(outputs, targets)
             loss.backward()
-            optimizer.step()
             
-            train_loss += loss.item() * positions.size(0)
+            # Gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
+            # Track gradient norms
+            grad_norm = 0.0
+            for param in model.parameters():
+                if param.grad is not None:
+                    grad_norm += param.grad.norm().item() ** 2
+            total_grad_norm += grad_norm ** 0.5
+            batch_count += 1
+            
+            optimizer.step()
+            running_loss += loss.item() * inputs.size(0)
         
-        # Calculate average training loss
-        train_loss = train_loss / len(train_loader.dataset)
+        train_loss = running_loss / len(train_dataset)
         train_losses.append(train_loss)
         
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for positions, evaluations in val_loader:
-                positions = positions.to(device)
-                evaluations = evaluations.to(device).unsqueeze(1)
-                outputs = model(positions)
-                loss = criterion(outputs, evaluations)
-                val_loss += loss.item() * positions.size(0)
+        avg_grad_norm = total_grad_norm / batch_count if batch_count > 0 else 0
         
-        val_loss = val_loss / len(val_loader.dataset)
+        # Validation phase
+        model.eval()
+        running_val_loss = 0.0
+        with torch.no_grad():
+            for inputs, targets in val_loader:
+                inputs = inputs.to(device).float()
+                targets = targets.to(device).float().view(-1, 1)
+                
+                outputs = model(inputs)
+                # Apply same tanh to validation
+                val_loss = criterion(outputs, targets)
+                running_val_loss += val_loss.item() * inputs.size(0)
+        
+        val_loss = running_val_loss / len(val_dataset)
         val_losses.append(val_loss)
         
-        # Update learning rate scheduler
+        # Update learning rate based on validation loss
         scheduler.step(val_loss)
+        
+        # Print progress including gradient norm
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}, Grad Norm: {avg_grad_norm:.6f}")
         
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), best_model_path)
+            # When saving the model, store the max_eval value for later use
+            model_info = {
+                "state_dict": model.state_dict(),
+                "max_eval": max_eval
+            }
+            torch.save(model_info, best_model_path)
             patience_counter = 0
-            print(f"Saved best model with validation loss: {best_val_loss:.6f}")
+            print(f"New best model saved with validation loss: {val_loss:.6f}")
         else:
             patience_counter += 1
-        
-        # Print statistics
-        epoch_time = time.time() - start_time
-        print(f"Epoch {epoch+1}/{epochs} | {epoch_time:.1f}s | Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
-        
-        # Early stopping
-        if patience_counter >= patience:
-            print(f"Early stopping after {epoch+1} epochs")
-            break
+            if patience_counter >= patience:
+                print(f"Early stopping after {epoch+1} epochs")
+                break
     
     # Load best model for export
-    model.load_state_dict(torch.load(best_model_path))
+    model.load_state_dict(torch.load(best_model_path)["state_dict"])
     model.eval()
     
     # Plot training progress
@@ -234,43 +298,27 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     plt.plot(train_losses, label='Training Loss')
     plt.plot(val_losses, label='Validation Loss')
     plt.xlabel('Epochs')
-    plt.ylabel('log(Loss)')
+    plt.ylabel('Loss')
     plt.title('Training and Validation Loss')
     plt.legend()
-    plt.yscale('log')
     plt.savefig(Path(output_model).with_suffix('.png'))
     
-    # Export to ONNX
-    dummy_input = torch.randn(1, 14, 8, 8, device=device)
-    
-    torch.onnx.export(
-        model,
-        dummy_input,
-        output_model,
-        export_params=True,
-        opset_version=12,
-        do_constant_folding=True,
-        input_names=['input'],
-        output_names=['output'],
-        dynamic_axes={'input': {0: 'batch_size'},
-                     'output': {0: 'batch_size'}}
-    )
+    # Save model in TorchScript format for C++ inference
+    example_input = torch.randn(1, 14, 8, 8, device=device)
+    traced_script_module = torch.jit.trace(model, example_input)
+    traced_script_module.save(output_model)
     
     print(f"Model exported to {output_model}")
     
     # Verify model with a sample evaluation
     if len(full_dataset) > 0:
-        sample_idx = np.random.randint(0, len(full_dataset))
-        sample_pos = torch.tensor(full_dataset.positions[sample_idx:sample_idx+1]).to(device)
-        sample_eval = full_dataset.evaluations_raw[sample_idx]
-        
+        sample_input, sample_target = full_dataset[0]
+        sample_input = sample_input.unsqueeze(0).to(device)
         with torch.no_grad():
-            model_output = model(sample_pos).item() * 100  # Scale back to centipawns
-        
-        print("\nSample evaluation:")
-        print(f"FEN: {full_dataset.fens[sample_idx]}")
-        print(f"Ground truth: {sample_eval:.2f}")
-        print(f"Model prediction: {model_output:.2f}")
+            sample_output = model(sample_input)
+            # Apply tanh to match training
+            sample_output = torch.tanh(sample_output)
+        print(f"Sample evaluation - Target: {sample_target:.6f}, Model output: {sample_output.item():.6f}")
     
     return model
 
@@ -279,7 +327,7 @@ def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Train a neural network for chess evaluation')
     parser.add_argument('--dataset', type=str, required=True, help='Path to dataset JSON file')
-    parser.add_argument('--output', type=str, default='chess_model.onnx', help='Output ONNX model path')
+    parser.add_argument('--output', type=str, default='chess_model.pt', help='Output PyTorch model path')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size for training')
     parser.add_argument('--learning-rate', type=float, default=0.0001, help='Initial learning rate')

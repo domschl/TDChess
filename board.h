@@ -1,9 +1,13 @@
 #ifndef BOARD_H
 #define BOARD_H
 
-#include <stdint.h>
 #include <stdbool.h>
-#include <stdlib.h>
+#include <stdint.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Piece definitions
 typedef enum {
@@ -61,7 +65,7 @@ void init_board(Board *board);
 void setup_default_position(Board *board);
 bool parse_fen(Board *board, const char *fen);
 bool board_to_fen(const Board *board, char *buffer, size_t buffer_size);
-void square_to_algebraic(int square, char *buffer); // New function
+void square_to_algebraic(int square, char *buffer);  // New function
 
 // Board utility functions
 Piece get_piece(const Board *board, int square);
@@ -119,5 +123,9 @@ int bitboard_to_square(Bitboard bb);
 int count_bits(Bitboard bb);
 int pop_lsb(Bitboard *bb);
 void validate_board_state(Board *board);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // BOARD_H
