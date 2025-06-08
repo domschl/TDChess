@@ -12,6 +12,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(ORT_DIR "/usr/lib/cmake/onnxruntime" CACHE PATH "Path to ONNXRuntime cmake config")
 find_package(ONNXRuntime REQUIRED)
 
+# Find required packages
+find_package(ONNX QUIET)
+find_package(CUDA QUIET)
+
 # Set a flag based on whether ONNX Runtime was found
 if(ONNXRuntime_FOUND)
     add_compile_definitions(HAVE_ONNXRUNTIME=1)
@@ -29,13 +33,13 @@ else()
     add_compile_definitions(HAVE_ONNXRUNTIME=0)
     message(STATUS "ONNX Runtime not found")
 
-    # Add ONNX Runtime paths
-    # set(ONNXRUNTIME_INCLUDE_DIRS "/usr/include/onnxruntime")
-    # set(ONNXRUNTIME_LIB_DIRS "/usr/lib")
+    # Set ONNX Runtime paths
+    set(ONNXRUNTIME_INCLUDE_DIRS "/usr/include/onnxruntime")
+    set(ONNXRUNTIME_LIB_DIRS "/usr/lib")
 
     # Include directories
-    # include_directories(${ONNXRUNTIME_INCLUDE_DIRS})
-    # link_directories(${ONNXRUNTIME_LIB_DIRS})
+    include_directories(${ONNXRUNTIME_INCLUDE_DIRS})
+    link_directories(${ONNXRUNTIME_LIB_DIRS})
 endif()
 
 # Define the TDChess executable
@@ -58,7 +62,7 @@ if(ONNXRuntime_FOUND)
     if(APPLE)
         target_link_libraries(TDChess PRIVATE onnxruntime)
     else()
-        target_link_libraries(TDChess PRIVATE ${ONNXRuntime_LIBRARIES} onnxruntime)
+        target_link_libraries(TDChess PRIVATE ${ONNXRuntime_LIBRARIES} onnxruntime m)
     endif()
     
     # Additional linker flags if needed
