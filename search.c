@@ -15,10 +15,10 @@
 #define MAX_PLY 64
 
 // Maximum depth for quiescence search
-#define MAX_QUIESCENCE_DEPTH 10
+#define MAX_QUIESCENCE_DEPTH 16
 
 // Time limit in milliseconds for search
-#define TIME_LIMIT_MS 1000
+#define TIME_LIMIT_MS 0  // 0 means no time limit
 
 // Transposition table entry types
 #define TT_EXACT 0
@@ -28,7 +28,7 @@
 // Default search configuration
 const SearchConfig DEFAULT_SEARCH_CONFIG = {
     .max_depth = 4,
-    .time_limit_ms = 1000,
+    .time_limit_ms = TIME_LIMIT_MS,
     .tt_size = 1024 * 1024,  // 1 million entries
     .use_null_move = true,
     .use_iterative_deepening = true,
@@ -58,6 +58,7 @@ static bool is_draw_by_repetition(const Board *board);
 static float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, int qdepth, int current_ply);
 static void sort_moves(MoveList *moves, int start_idx);
 static int get_piece_value(PieceType piece);
+static void score_capture(Move *move, const Board *board, int *score);
 
 // Check if time for search has elapsed
 static bool is_time_up(void) {
@@ -93,6 +94,7 @@ bool init_search(SearchConfig config) {
     // Free old table if it exists
     if (transposition_table != NULL) {
         free(transposition_table);
+        transposition_table = NULL;
     }
 
     // Allocate transposition table
@@ -144,6 +146,10 @@ void tt_store(uint64_t key, float score, int depth, int flag, Move best_move) {
 
 // Probe transposition table
 bool tt_probe(uint64_t key, float *score, int depth, int alpha, int beta, Move *move) {
+    if (transposition_table == NULL) {
+        return false;
+    }
+
     uint64_t index = key & tt_mask;
     TTEntry *entry = &transposition_table[index];
 
@@ -348,13 +354,22 @@ void score_moves(Board *board, MoveList *moves, Move tt_move, int ply) {
 
 // Main search function
 float search_position(Board *board, int depth, Move *best_move, uint64_t *nodes_searched) {
+    // Ensure search is initialized
+    if (transposition_table == NULL) {
+        if (!init_search(DEFAULT_SEARCH_CONFIG)) {
+            fprintf(stderr, "ERROR: Failed to initialize search\n");
+            return 0.0f;
+        }
+    }
+
     *nodes_searched = 0;
     search_time_up = false;
     search_start_time = clock();
 
     // Use iterative deepening if enabled
+    float score;
     if (search_config.use_iterative_deepening) {
-        return iterative_deepening_search(board, depth, best_move, nodes_searched, search_config.verbosity);
+        score = iterative_deepening_search(board, depth, best_move, nodes_searched, search_config.verbosity);
     } else {
         // Initialize PV for direct alpha-beta search
         Move pv_line[MAX_PLY];
@@ -364,8 +379,8 @@ float search_position(Board *board, int depth, Move *best_move, uint64_t *nodes_
         uint64_t board_key = compute_zobrist_key(board);
 
         // Run alpha-beta search
-        float score = alpha_beta(board, depth, -FLT_MAX, FLT_MAX, nodes_searched, 0,
-                                 board_key, pv_line, &pv_length);
+        score = alpha_beta(board, depth, -FLT_MAX, FLT_MAX, nodes_searched, 0,
+                           board_key, pv_line, &pv_length);
 
         // Copy best move from PV if available
         if (pv_length > 0) {
@@ -378,9 +393,16 @@ float search_position(Board *board, int depth, Move *best_move, uint64_t *nodes_
                 *best_move = moves.moves[0];
             }
         }
-
-        return score;
     }
+
+    // Debug: Print the final score and move
+    if (search_config.verbosity > 0) {
+        char move_str[10];
+        strcpy(move_str, move_to_string(*best_move));
+        printf("info string Final score: %.2f, Best move: %s\n", score, move_str);
+    }
+
+    return score;
 }
 
 // Iterative deepening search
@@ -412,7 +434,7 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
         float beta = FLT_MAX;
 
         // Search with current depth
-        best_score = alpha_beta(board, depth, alpha, beta, nodes, 0, board_key, pv_line, &pv_length);
+        float score = alpha_beta(board, depth, alpha, beta, nodes, 0, board_key, pv_line, &pv_length);
 
         // If we're out of time, use the last completed depth
         if (search_time_up) {
@@ -422,7 +444,8 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
             break;
         }
 
-        // Update best move from PV
+        // Update best move and score only if the search completed
+        best_score = score;
         if (pv_length > 0) {
             *best_move = pv_line[0];
         }
@@ -430,8 +453,12 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
         // Print current iteration info
         if (verbosity > 0) {
             double elapsed_ms = (double)clock() * 1000.0 / CLOCKS_PER_SEC - start_ms;
-            printf("info depth %d score cp %.0f nodes %" PRIu64 " time %.0f pv ",
-                   depth, best_score * 100.0f, *nodes, elapsed_ms);
+
+            // Convert score to centipawns with proper rounding
+            int score_cp = (int)(score * 100.0f + (score >= 0 ? 0.5f : -0.5f));
+
+            printf("info depth %d score cp %d nodes %" PRIu64 " time %.0f pv ",
+                   depth, score_cp, *nodes, elapsed_ms);
 
             // Print PV
             Board temp_board = *board;
@@ -448,13 +475,14 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
 
     if (verbosity > 0) {
         double elapsed_ms = (double)clock() * 1000.0 / CLOCKS_PER_SEC - start_ms;
-        printf("info string Search completed in %.2f ms\n", elapsed_ms);
+        printf("info string Search completed in %.2f ms with final score: %.2f\n",
+               elapsed_ms, best_score);
     }
 
     return best_score;
 }
 
-// Alpha-beta search with PVS
+// Fix alpha-beta search with correct negamax implementation
 float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nodes,
                  int ply, uint64_t board_key, Move *pv_line, int *pv_length) {
     // Initialize PV length
@@ -484,30 +512,6 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
 
     (*nodes)++;
 
-    // Null move pruning
-    if (search_config.use_null_move && depth >= 3 && !is_in_check(board, board->side_to_move) && has_non_pawn_material(board)) {
-        // Make a null move
-        Board null_board = *board;
-        null_board.side_to_move = !null_board.side_to_move;
-        null_board.en_passant_square = -1;
-
-        // Update hash key for null move
-        uint64_t null_key = board_key ^ side_to_move_hash();
-        if (board->en_passant_square >= 0) {
-            null_key ^= en_passant_hash(board->en_passant_square);
-        }
-
-        // Search with reduced depth
-        Move null_pv[MAX_PLY];
-        int null_pv_length = 0;
-        float null_score = -alpha_beta(&null_board, depth - 1 - 2, -beta, -beta + 0.01f,
-                                       nodes, ply + 1, null_key, null_pv, &null_pv_length);
-
-        if (null_score >= beta) {
-            return beta;  // Null move pruning
-        }
-    }
-
     // Generate and score all legal moves
     MoveList moves;
     generate_legal_moves(board, &moves);
@@ -525,7 +529,7 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     score_moves(board, &moves, tt_move, ply);
 
     int move_count = 0;
-    float best_score = -FLT_MAX;
+    float best_score = -FLT_MAX;  // Initialize to worst possible score
     Move best_move = {0};
     int tt_flag = TT_ALPHA;
 
@@ -567,14 +571,12 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
 
             // Re-search with full window if score might be better than alpha
             if (score > alpha && (reduction > 0 || score < beta)) {
-                // If reduced, retry with full depth
+                // If reduced, retry with full depth and proper bounds
                 if (reduction > 0) {
-                    score = -alpha_beta(&next_board, depth - 1, -alpha - 0.01f, -alpha,
+                    score = -alpha_beta(&next_board, depth - 1, -beta, -alpha,
                                         nodes, ply + 1, new_key, child_pv, &child_pv_length);
-                }
-
-                // If still promising, do a full window search
-                if (score > alpha && score < beta) {
+                } else if (score < beta) {
+                    // If within bounds but not reduced, do a full window search
                     score = -alpha_beta(&next_board, depth - 1, -beta, -alpha,
                                         nodes, ply + 1, new_key, child_pv, &child_pv_length);
                 }
@@ -603,6 +605,7 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
                     update_history(current_move, depth, board);
 
                     tt_flag = TT_BETA;
+                    best_score = beta;  // Return the beta bound
                     break;
                 }
             }
@@ -615,7 +618,7 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     return best_score;
 }
 
-// Quiescence search to handle tactical positions
+// Ensure quiescence search is correctly evaluating positions
 float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, int qdepth, int current_ply) {
     // Check for maximum depth
     if (qdepth >= MAX_QUIESCENCE_DEPTH) {
@@ -629,7 +632,7 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
 
     (*nodes)++;
 
-    // Stand pat score
+    // Stand pat score - ensure it's in pawn units (not centipawns)
     float stand_pat = evaluate_position(board);
 
     // Beta cutoff
@@ -642,94 +645,14 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
         alpha = stand_pat;
     }
 
-    // Delta pruning - skip if we're too far below alpha
-    float delta = 1.0f + 9.0f;  // Pawn + margin (approximate queen value)
-    if (stand_pat + delta < alpha) {
-        return alpha;
-    }
-
     // Generate and score only captures
     MoveList moves;
     generate_captures(board, &moves);
 
     // Score captures for better ordering
     for (int i = 0; i < moves.count; i++) {
-        Move *move = &(moves.moves[i]);
-
-        // MVV-LVA scoring
-        int victim_value = 0;
-        if (move->en_passant) {
-            victim_value = 100;  // Pawn value for en passant
-        } else {
-            PieceType victim_type = board->pieces[move->to].type;
-            switch (victim_type) {
-            case PAWN:
-                victim_value = 100;
-                break;
-            case KNIGHT:
-                victim_value = 320;
-                break;
-            case BISHOP:
-                victim_value = 330;
-                break;
-            case ROOK:
-                victim_value = 500;
-                break;
-            case QUEEN:
-                victim_value = 900;
-                break;
-            default:
-                break;
-            }
-        }
-
-        int attacker_value = 0;
-        PieceType attacker_type = board->pieces[move->from].type;
-        switch (attacker_type) {
-        case PAWN:
-            attacker_value = 100;
-            break;
-        case KNIGHT:
-            attacker_value = 320;
-            break;
-        case BISHOP:
-            attacker_value = 330;
-            break;
-        case ROOK:
-            attacker_value = 500;
-            break;
-        case QUEEN:
-            attacker_value = 900;
-            break;
-        case KING:
-            attacker_value = 1000;
-            break;
-        default:
-            break;
-        }
-
-        // Sort by MVV-LVA
-        moves.scores[i] = victim_value * 10 - attacker_value;
-
-        // Promotions get extra bonus
-        if (move->promotion != EMPTY) {
-            switch (move->promotion) {
-            case QUEEN:
-                moves.scores[i] += 800;
-                break;
-            case ROOK:
-                moves.scores[i] += 500;
-                break;
-            case BISHOP:
-                moves.scores[i] += 300;
-                break;
-            case KNIGHT:
-                moves.scores[i] += 300;
-                break;
-            default:
-                break;
-            }
-        }
+        // Score moves by MVV-LVA
+        score_capture(&moves.moves[i], board, &moves.scores[i]);
     }
 
     // Process each capture in order
@@ -743,16 +666,11 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
         make_move(&next_board, &current_move);
 
         // Skip if we're in check after the move
-        if (is_in_check(&next_board, !board->side_to_move)) {
+        if (is_in_check(&next_board, next_board.side_to_move)) {
             continue;
         }
 
-        // Futility pruning: skip bad captures
-        if (stand_pat + 1.0f + get_piece_value(board->pieces[current_move.to].type) / 100.0f < alpha) {
-            continue;
-        }
-
-        // Recursively search
+        // Recursively search - ensure proper negation and score propagation
         float score = -quiescence_search(&next_board, -beta, -alpha, nodes, qdepth + 1, current_ply + 1);
 
         // Beta cutoff
@@ -767,6 +685,94 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
     }
 
     return alpha;
+}
+
+/**
+ * Score a capture move using MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
+ *
+ * @param move Pointer to the move to score
+ * @param board Pointer to the current board state
+ * @param score Pointer to store the calculated score
+ */
+static void score_capture(Move *move, const Board *board, int *score) {
+    if (!move->capture) {
+        *score = 0;
+        return;
+    }
+
+    // Get the piece types
+    PieceType victim_type = board->pieces[move->to].type;
+    PieceType attacker_type = board->pieces[move->from].type;
+
+    // MVV-LVA calculation
+    int victim_value = 0;
+    switch (victim_type) {
+    case PAWN:
+        victim_value = PAWN_VALUE;
+        break;
+    case KNIGHT:
+        victim_value = KNIGHT_VALUE;
+        break;
+    case BISHOP:
+        victim_value = BISHOP_VALUE;
+        break;
+    case ROOK:
+        victim_value = ROOK_VALUE;
+        break;
+    case QUEEN:
+        victim_value = 900;
+        break;  // Use constant when available
+    default:
+        break;
+    }
+
+    int attacker_value = 0;
+    switch (attacker_type) {
+    case PAWN:
+        attacker_value = PAWN_VALUE;
+        break;
+    case KNIGHT:
+        attacker_value = KNIGHT_VALUE;
+        break;
+    case BISHOP:
+        attacker_value = BISHOP_VALUE;
+        break;
+    case ROOK:
+        attacker_value = ROOK_VALUE;
+        break;
+    case QUEEN:
+        attacker_value = 900;
+        break;  // Use constant when available
+    case KING:
+        attacker_value = 10000;
+        break;  // King has highest value
+    default:
+        break;
+    }
+
+    // MVV-LVA formula: victim value * 10 - attacker value
+    // This prioritizes capturing high-value pieces with low-value attackers
+    *score = victim_value * 10 - attacker_value;
+
+    // Add promotion bonus if applicable
+    if (move->promotion != EMPTY) {
+        switch (move->promotion) {
+        case QUEEN:
+            *score += 800;
+            break;
+        case ROOK:
+            *score += 500;
+            break;
+        case BISHOP:
+            *score += 300;
+            break;
+        case KNIGHT:
+            *score += 300;
+            break;
+        default:
+            break;
+        }
+    }
 }
 
 // Check if board is in check
@@ -828,14 +834,26 @@ bool is_draw_by_repetition(const Board *board) {
  */
 float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes_searched, int verbosity) {
     // Set verbosity level for this search
-    SearchConfig temp_config = search_config;
+    int old_verbosity = search_config.verbosity;
     search_config.verbosity = verbosity;
 
     // Call the main search function
     float score = search_position(board, depth, best_move, nodes_searched);
 
-    // Restore original config
-    search_config = temp_config;
+    if (verbosity > 1) {
+        printf("info string Raw score: %.4f, CP score: %d\n",
+               score, (int)(score * 100.0f));
+    }
+
+    // Restore original verbosity
+    search_config.verbosity = old_verbosity;
+
+    // Debug printout to verify score
+    if (verbosity > 0) {
+        char move_str[10];
+        strcpy(move_str, move_to_string(*best_move));
+        printf("info string Best move: %s, Score: %.2f\n", move_str, score);
+    }
 
     return score;
 }

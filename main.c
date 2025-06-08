@@ -300,7 +300,11 @@ void play_against_computer(int depth) {
             Board current_board = board;  // Copy current board for search
             Move computer_move;
             float score_pawn_units = find_best_move(&current_board, search_depth, &computer_move, &nodes, 1);
-            printf("Computer move: %s (score: %.2f, nodes: %" PRIu64 ")\n", move_to_string(computer_move), score_pawn_units, nodes);
+            printf("Computer move: %s (score: %.2f, nodes: %" PRIu64 ")\n",
+                   move_to_string(computer_move), score_pawn_units, nodes);
+
+            // Add debug print to track the score
+            printf("DEBUG: Score after find_best_move: %.8f\n", score_pawn_units);
 
             make_move(&board, &computer_move);
         }
