@@ -16,13 +16,17 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake libtorch-dev
+        sudo apt-get install -y build-essential cmake wget unzip
+        wget https://download.pytorch.org/libtorch/pre-cxx11-abi/libtorch-shared-with-deps-1.13.1%2Bcpu.zip -O libtorch.zip
+        unzip libtorch.zip
+        rm libtorch.zip
 
     - name: Create build directory
       run: mkdir build && cd build
 
     - name: Configure CMake
-      run: cd build && cmake .. -DCMAKE_PREFIX_PATH=$(dirname $(dirname $(find /usr -name libtorch.so | head -1)))
+      # The extracted folder is named 'libtorch', so CMAKE_PREFIX_PATH should point to it.
+      run: cd build && cmake .. -DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/libtorch
 
     - name: Build
       run: cd build && cmake --build .
