@@ -1,6 +1,7 @@
 #include "pytorch_binding.h"
 #include "neural.h"  // For board_to_planes function
 #include <torch/script.h> // This should be always included for torch::jit::script::Module, torch::Device, etc.
+#include <torch/utils.h> // For torch::NoGradGuard and other utilities
 #ifdef USE_GPU_SUPPORT
 #include <torch/cuda.h>
 #include <torch/mps.h>
