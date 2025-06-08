@@ -166,7 +166,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     
     # Simpler learning rate scheduler 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 'min', patience=5, factor=0.5, verbose=True
+        optimizer, 'min', patience=5, factor=0.5 
     )
     
     # Train model
