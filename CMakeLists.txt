@@ -54,6 +54,7 @@ add_executable(TDChess
     td_learning.c
     visualization.c
     python_binding.c
+    self_play.c
 )
 
 # Link with ONNX Runtime if available

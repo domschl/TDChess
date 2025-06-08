@@ -11,6 +11,7 @@
 #include "python_binding.h"
 #include "td_learning.h"
 #include "visualization.h"
+#include "self_play.h"
 
 // Add this function declaration at the top of the file with other function declarations
 
@@ -526,6 +527,29 @@ int main(int argc, char **argv) {
             float lambda = (argc > 5) ? atof(argv[5]) : 0.7f;
             float temperature = (argc > 6) ? atof(argv[6]) : 1.0f;
             cmd_td_lambda_training(initial_model, output_model, num_games, lambda, temperature);
+        } else if (strcmp(argv[1], "generate-self-play") == 0) {
+            if (argc < 6) {
+                printf("Usage: %s generate-self-play <model_path> <output_path> <num_games> <temperature>\n", argv[0]);
+                return 1;
+            }
+
+            const char *model_path = argv[2];
+            const char *output_path = argv[3];
+            int num_games = atoi(argv[4]);
+            float temperature = atof(argv[5]);
+
+            if (num_games <= 0) {
+                printf("Number of games must be positive\n");
+                return 1;
+            }
+
+            if (temperature <= 0.0f) {
+                printf("Temperature must be positive\n");
+                return 1;
+            }
+
+            bool success = generate_self_play_games(model_path, output_path, num_games, temperature);
+            return success ? 0 : 1;
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");
@@ -539,6 +563,7 @@ int main(int argc, char **argv) {
             printf("  generate-dataset [file] [count] [depth] - Generate training dataset\n");
             printf("  play-neural [depth] [model] - Play against computer with neural evaluation\n");
             printf("  td-lambda [initial_model] [output_model] [games] [lambda] - Run TD-Lambda training\n");
+            printf("  generate-self-play [model_path] [output_path] [num_games] [temperature] - Generate self-play games\n");
         }
     } else {
         // Default to interactive mode
