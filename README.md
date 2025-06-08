@@ -1,4 +1,4 @@
-[![C/C++ CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![C/C++ CI](https://github.com/domschl/TDChess/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 
 A chess engine with neural network evaluation and TD(λ) learning capabilities.
 
