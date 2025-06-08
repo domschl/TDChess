@@ -33,6 +33,7 @@ set(SOURCES
     neural.c
     visualization.c
     td_learning.c
+    zobrist.c
     python_binding.c
     self_play.c
 )
