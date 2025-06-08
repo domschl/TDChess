@@ -15,7 +15,7 @@
 #define MAX_PLY 64
 
 // Maximum depth for quiescence search
-#define MAX_QUIESCENCE_DEPTH 16
+#define MAX_QUIESCENCE_DEPTH 8
 
 // Time limit in milliseconds for search
 #define TIME_LIMIT_MS 0  // 0 means no time limit
