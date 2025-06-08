@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 #include <time.h>
 #include "board.h"
 #include "movegen.h"
@@ -299,7 +300,7 @@ void play_against_computer(int depth) {
             Board current_board = board;  // Copy current board for search
             Move computer_move;
             float score_pawn_units = find_best_move(&current_board, search_depth, &computer_move, &nodes, 1);
-            printf("Computer move: %s (score: %.2f, nodes: %llu)\n", move_to_string(computer_move), score_pawn_units, nodes);
+            printf("Computer move: %s (score: %.2f, nodes: %" PRIu64 ")\n", move_to_string(computer_move), score_pawn_units, nodes);
 
             make_move(&board, &computer_move);
         }
