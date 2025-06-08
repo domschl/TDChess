@@ -168,7 +168,14 @@ static bool initialize_neural_evaluator_internal(const char *model_path) {
 #elif __linux__
     printf("Info: Attempting to use CUDA Execution Provider (Linux).\n");
     OrtCUDAProviderOptionsV2 *cuda_options = NULL;
-    status = g_ort_api->SessionOptionsAppendExecutionProvider_CUDA_V2(session_options_global, cuda_options);
+    status = g_ort_api->CreateCUDAProviderOptions(&cuda_options);
+    if (status != NULL) {
+        fprintf(stderr, "Error: Failed to create CUDA provider options: %s\n", g_ort_api->GetErrorMessage(status));
+        g_ort_api->ReleaseStatus(status);
+        return false;
+    }
+
+    status = g_ort_api->SessionOptionsAppendExecutionProvider_CUDA_V2(session_options_global, &cuda_options);
     if (status == NULL) {
         printf("Info: CUDA Execution Provider appended successfully.\n");
         provider_set = true;
