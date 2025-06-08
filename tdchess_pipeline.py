@@ -37,8 +37,8 @@ class TDChessTraining:
         if not self.tdchess_exe.exists():
             raise FileNotFoundError(f"TDChess executable not found at {self.tdchess_exe}")
             
-        # Initial model and dataset paths
-        self.initial_model = self.model_dir / "chess_model_iter_0.onnx"
+        # Initial model and dataset paths - use .pt extension for PyTorch
+        self.initial_model = self.model_dir / "chess_model_iter_0.pt"
         self.initial_dataset = self.model_dir / "initial_dataset.json"
         
         # Device for PyTorch
@@ -177,6 +177,7 @@ class TDChessTraining:
         print(f"Created TD(λ) dataset with {len(positions)} positions at {output_dataset_path}")
         return output_dataset_path
     
+    # Update output model paths
     def run_training_pipeline(self, start_iteration=1):
         """Run the complete training pipeline."""
         print(f"Starting TDChess training pipeline with {self.iterations} iterations")
@@ -191,10 +192,10 @@ class TDChessTraining:
         for i in range(start_iteration, self.iterations + 1):
             print(f"\n--- Iteration {i} of {self.iterations} ---")
             
-            # Paths for this iteration
+            # Paths for this iteration - use .pt extension
             games_path = self.model_dir / f"self_play_games_iter_{i}.json"
             td_dataset_path = self.model_dir / f"td_dataset_iter_{i}.json"
-            output_model = self.model_dir / f"chess_model_iter_{i}.onnx"
+            output_model = self.model_dir / f"chess_model_iter_{i}.pt"
             
             # Step 1: Generate self-play games
             self.generate_self_play_games(current_model, games_path)
