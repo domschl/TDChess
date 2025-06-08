@@ -3,39 +3,60 @@
 
 #include "board.h"
 #include "movegen.h"
-#include "eval.h"
-#include <float.h>  // For FLT_MAX
+#include <stdint.h>
+#include <stdbool.h>
 
-#define MAX_PLY 64  // Maximum search depth / PV length
-
-// Search result structure
+// Search configuration
 typedef struct {
-    Move best_move;
-    float score;
-    uint64_t nodes_searched;
-    int depth_reached;
-} SearchResult;
+    int max_depth;                 // Maximum search depth
+    int time_limit_ms;             // Time limit in milliseconds, 0 for unlimited
+    uint64_t tt_size;              // Transposition table size in entries
+    bool use_null_move;            // Whether to use null move pruning
+    bool use_iterative_deepening;  // Whether to use iterative deepening
+    int verbosity;                 // 0=quiet, 1=normal, 2=verbose
+} SearchConfig;
 
-// Search function to find best move in a position
-SearchResult search_position(Board *board, int depth);
+// Transposition table entry structure
+typedef struct {
+    uint64_t key;    // Zobrist hash key
+    float score;     // Evaluation score
+    uint8_t depth;   // Search depth
+    uint8_t flag;    // Entry type (exact, alpha, beta)
+    Move best_move;  // Best move from this position
+} TTEntry;
+
+// Default search configuration
+extern const SearchConfig DEFAULT_SEARCH_CONFIG;
+
+// Initialize search module with configuration
+bool init_search(SearchConfig config);
+
+// Clean up search module resources
+void cleanup_search(void);
+
+/**
+ * @brief Find the best move in a position (compatibility wrapper for search_position)
+ *
+ * @param board The current chess position
+ * @param depth Maximum search depth
+ * @param best_move Pointer to store the best move found
+ * @param nodes_searched Pointer to store the number of nodes searched
+ * @param verbosity 0=quiet, 1=normal, 2=verbose
+ * @return float Score of the position in pawn units
+ */
+float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes_searched, int verbosity);
+
+// Main search function - finds best move and returns evaluation
+float search_position(Board *board, int depth, Move *best_move, uint64_t *nodes_searched);
 
 // Alpha-beta search function
-float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nodes, int current_ply, Move *pv_line, int *pv_length);
+float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nodes,
+                 int ply, uint64_t board_key, Move *pv_line, int *pv_length);
 
-// Function to make a computer move
-Move get_computer_move(Board *board, int depth);
+// Iterative deepening search
+float iterative_deepening_search(Board *board, int max_depth, Move *best_move, uint64_t *nodes, int verbosity);
 
-// Update the find_best_move declaration to return float instead of void
-// Function to find the best move with a given depth, verbosity 0: no output, 1: basic info, 2: detailed info
-// Returns the score in pawn units from the perspective of the player to move
-float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes, int verbosity);
-
-// Add these function declarations
-void score_moves(Board *board, MoveList *moves);
-void sort_moves(MoveList *moves, int start_index);
-
-// Helper function to convert a move to SAN (Standard Algebraic Notation)
-// This will be implemented in search.c
-void move_to_san(const Board *board_before_move, const Move *move, char *san_buffer, size_t buffer_size);
+// Check if side has non-pawn material (for null move pruning)
+bool has_non_pawn_material(const Board *board);
 
 #endif  // SEARCH_H

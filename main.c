@@ -588,6 +588,55 @@ int main(int argc, char **argv) {
 
             test_pytorch(argv[2]);
             return 0;
+        } else if (strcmp(argv[1], "bench") == 0) {
+            int hash_size_mb = 16;  // Default hash size in MB
+            int depth = 6;          // Default depth
+
+            if (argc > 2) depth = atoi(argv[2]);
+            if (argc > 3) hash_size_mb = atoi(argv[3]);
+
+            // Configure search with specified hash size
+            uint64_t entries = (hash_size_mb * 1024 * 1024) / sizeof(TTEntry);
+            SearchConfig config = DEFAULT_SEARCH_CONFIG;
+            config.tt_size = entries;
+            config.max_depth = depth;
+            config.verbosity = 1;
+
+            if (!init_search(config)) {
+                printf("Failed to initialize search with %d MB hash\n", hash_size_mb);
+                return 1;
+            }
+
+            printf("Running benchmark at depth %d with %d MB hash table...\n", depth, hash_size_mb);
+
+            // Run benchmark on standard test positions
+            Board board;
+            setup_default_position(&board);
+
+            clock_t start = clock();
+            Move best_move;
+            uint64_t nodes = 0;
+
+            float score = search_position(&board, depth, &best_move, &nodes);
+
+            clock_t end = clock();
+            double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
+
+            char move_str[10];
+            strcpy(move_str, move_to_string(best_move));
+
+            printf("Benchmark results:\n");
+            printf("Position: Starting position\n");
+            printf("Depth: %d\n", depth);
+            printf("Hash: %d MB\n", hash_size_mb);
+            printf("Best move: %s\n", move_str);
+            printf("Score: %.2f centipawns\n", score * 100.0f);
+            printf("Nodes: %" PRIu64 "\n", nodes);
+            printf("Time: %.3f seconds\n", elapsed);
+            printf("NPS: %.0f nodes/second\n", nodes / elapsed);
+
+            cleanup_search();
+            return 0;
         } else {
             printf("Unknown command: %s\n", argv[1]);
             printf("Available commands:\n");
@@ -602,6 +651,7 @@ int main(int argc, char **argv) {
             printf("  play-neural [depth] [model] - Play against computer with neural evaluation\n");
             printf("  td-lambda [initial_model] [output_model] [games] [lambda] - Run TD-Lambda training\n");
             printf("  generate-self-play [model_path] [output_path] [num_games] [temperature] - Generate self-play games\n");
+            printf("  bench [depth] [hash_size_mb] - Run benchmark with specified depth and hash size\n");
         }
     } else {
         // Default to interactive mode
