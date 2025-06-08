@@ -4,6 +4,7 @@
 #include "board.h"
 #include <stdio.h>
 #include <time.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
@@ -327,7 +328,7 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes, 
             }
 
             if (verbosity > 0) {
-                printf("info depth %d score cp %.0f nodes %llu pv ", depth, uci_score_cp, *nodes);
+                printf("info depth %d score cp %.0f nodes %" PRIu64 " pv ", depth, uci_score_cp, *nodes);
                 Board temp_board_for_san = original_board_state_at_root;
                 for (int k = 0; k < overall_best_pv_length; k++) {
                     char san_buffer[10];
