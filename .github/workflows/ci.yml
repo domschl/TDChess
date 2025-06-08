@@ -1,0 +1,31 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake libtorch-dev
+
+    - name: Create build directory
+      run: mkdir build && cd build
+
+    - name: Configure CMake
+      run: cd build && cmake .. -DCMAKE_PREFIX_PATH=$(dirname $(dirname $(find /usr -name libtorch.so | head -1)))
+
+    - name: Build
+      run: cd build && cmake --build .
+
+    - name: Run tests
+      run: cd build && ./TDChess test 3
