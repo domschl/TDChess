@@ -52,7 +52,7 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
     // evaluate_position returns pawn units from current_board.side_to_move's perspective.
     // For starting position, side_to_move is WHITE.
     float eval_pawn_units_initial = evaluate_position(&current_board);
-    evaluations[pos_count] = eval_pawn_units_initial * 100.0f; // Convert to centipawns
+    evaluations[pos_count] = eval_pawn_units_initial * 100.0f;  // Convert to centipawns
     pos_count++;
 
     // Play moves and collect positions
@@ -61,29 +61,29 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
         // Search for best move
         Move best_move;
         // score is V(s_t+1) from P_t's perspective (player at s_t), in pawn units
-        float score_pawn_units = find_best_move(&current_board, search_depth, &best_move, &nodes);
+        float score_pawn_units = find_best_move(&current_board, search_depth, &best_move, &nodes, 0);
 
         // Make the move
-        make_move(&current_board, &best_move); // current_board is now s_t+1, side_to_move is P_t+1
+        make_move(&current_board, &best_move);  // current_board is now s_t+1, side_to_move is P_t+1
 
         // Collect position
         memcpy(&positions[pos_count], &current_board, sizeof(Board));
 
         // eval_s_t_plus_1_curr_player_pawn_units is V(s_t+1) from P_t+1's perspective, in pawn units
         float eval_s_t_plus_1_curr_player_pawn_units = -score_pawn_units;
-        
+
         float eval_s_t_plus_1_white_perspective_pawn_units;
-        if (current_board.side_to_move == WHITE) { // P_t+1 is White
+        if (current_board.side_to_move == WHITE) {  // P_t+1 is White
             eval_s_t_plus_1_white_perspective_pawn_units = eval_s_t_plus_1_curr_player_pawn_units;
-        } else { // P_t+1 is Black, so negate to get White's perspective
+        } else {  // P_t+1 is Black, so negate to get White's perspective
             eval_s_t_plus_1_white_perspective_pawn_units = -eval_s_t_plus_1_curr_player_pawn_units;
         }
-        
-        evaluations[pos_count] = eval_s_t_plus_1_white_perspective_pawn_units * 100.0f; // Convert to centipawns
+
+        evaluations[pos_count] = eval_s_t_plus_1_white_perspective_pawn_units * 100.0f;  // Convert to centipawns
         pos_count++;
 
         // Print progress
-        if (pos_count % 100 == 0) { // Adjusted progress printing
+        if (pos_count % 100 == 0) {  // Adjusted progress printing
             printf("Generated %d/%d positions\n", pos_count, num_positions);
         }
 
@@ -95,7 +95,7 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
             // Optionally, add the new starting position to the dataset if not full
             if (pos_count < num_positions) {
                 memcpy(&positions[pos_count], &current_board, sizeof(Board));
-                float eval_pawn_units_reset = evaluate_position(&current_board); // From White's perspective
+                float eval_pawn_units_reset = evaluate_position(&current_board);  // From White's perspective
                 evaluations[pos_count] = eval_pawn_units_reset * 100.0f;
                 pos_count++;
             }
@@ -103,10 +103,10 @@ void generate_training_dataset(const char *filename, int num_positions, int sear
     }
 
     // Export positions to dataset
-    if (!export_positions_to_dataset(filename, positions, evaluations, pos_count)) { // Use pos_count
+    if (!export_positions_to_dataset(filename, positions, evaluations, pos_count)) {  // Use pos_count
         printf("Failed to export positions to dataset\n");
     } else {
-        printf("Successfully exported %d positions to %s\n", pos_count, filename); // Use pos_count
+        printf("Successfully exported %d positions to %s\n", pos_count, filename);  // Use pos_count
     }
 
     // Free memory
@@ -292,7 +292,13 @@ void play_against_computer(int depth) {
             }
         } else {
             // Computer's move
-            Move computer_move = get_computer_move(&board, depth);
+            uint64_t nodes = 0;
+            int search_depth = depth;     // Use the provided search depth
+            Board current_board = board;  // Copy current board for search
+            Move computer_move;
+            float score_pawn_units = find_best_move(&current_board, search_depth, &computer_move, &nodes, 1);
+            printf("Computer move: %s (score: %.2f, nodes: %llu)\n", move_to_string(computer_move), score_pawn_units, nodes);
+
             make_move(&board, &computer_move);
         }
     }

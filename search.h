@@ -4,9 +4,9 @@
 #include "board.h"
 #include "movegen.h"
 #include "eval.h"
-#include <float.h> // For FLT_MAX
+#include <float.h>  // For FLT_MAX
 
-#define MAX_PLY 64 // Maximum search depth / PV length
+#define MAX_PLY 64  // Maximum search depth / PV length
 
 // Search result structure
 typedef struct {
@@ -26,8 +26,9 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
 Move get_computer_move(Board *board, int depth);
 
 // Update the find_best_move declaration to return float instead of void
-// Function to find the best move with a given depth
-float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes);
+// Function to find the best move with a given depth, verbosity 0: no output, 1: basic info, 2: detailed info
+// Returns the score in pawn units from the perspective of the player to move
+float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes, int verbosity);
 
 // Add these function declarations
 void score_moves(Board *board, MoveList *moves);
@@ -37,4 +38,4 @@ void sort_moves(MoveList *moves, int start_index);
 // This will be implemented in search.c
 void move_to_san(const Board *board_before_move, const Move *move, char *san_buffer, size_t buffer_size);
 
-#endif // SEARCH_H
+#endif  // SEARCH_H

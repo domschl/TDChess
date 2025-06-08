@@ -195,7 +195,7 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
 // Quiescence search
 // pv_line is unused here but kept for signature consistency with alpha_beta
 static float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, int qdepth, int current_ply, Move *pv_line, int *pv_length) {
-    pv_line;  // Mark pv_line as unused to suppress the warning
+    (void)pv_line;  // Mark pv_line as unused to suppress the warning
 
     (*nodes)++;
     *pv_length = 0;  // Quiescence search does not extend the PV from the main search
@@ -265,7 +265,7 @@ static float quiescence_search(Board *board, float alpha, float beta, uint64_t *
 }
 
 // Find the best move for the current position
-float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) {
+float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes, int verbosity) {
     *nodes = 0;
     float alpha = -FLT_MAX;  // Use FLT_MAX for float
     float beta = FLT_MAX;
@@ -286,7 +286,7 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) 
     int overall_best_pv_length = 0;
     Board original_board_state_at_root = *board;  // For SAN generation
 
-    printf("info string Starting search at depth %d\n", depth);
+    if (verbosity > 0) printf("info string Starting search at depth %d\n", depth);
 
     for (int i = 0; i < moves.count; i++) {
         sort_moves(&moves, i);
@@ -304,7 +304,7 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) 
 
         char root_move_san[10];
         move_to_san(&original_board_state_at_root, &current_move_to_try, root_move_san, sizeof(root_move_san));
-        printf("info currmove %s (eval for this move: %.2f)\n", root_move_san, score_for_current_player * 100.0f);
+        if (verbosity > 1) printf("info currmove %s (eval for this move: %.2f)\n", root_move_san, score_for_current_player * 100.0f);
 
         if (score_for_current_player > best_score_for_root_player) {
             best_score_for_root_player = score_for_current_player;
@@ -326,20 +326,22 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) 
                 uci_score_cp = -best_score_for_root_player * 100.0f;  // Negate if Black's turn for White's perspective
             }
 
-            printf("info depth %d score cp %.0f nodes %llu pv ", depth, uci_score_cp, *nodes);
-            Board temp_board_for_san = original_board_state_at_root;
-            for (int k = 0; k < overall_best_pv_length; k++) {
-                char san_buffer[10];
-                // Ensure the move struct passed to move_to_san is complete if make_move modifies it.
-                // Here, overall_best_pv[k] should be the original move struct.
-                move_to_san(&temp_board_for_san, &overall_best_pv[k], san_buffer, sizeof(san_buffer));
-                printf("%s ", san_buffer);
+            if (verbosity > 0) {
+                printf("info depth %d score cp %.0f nodes %llu pv ", depth, uci_score_cp, *nodes);
+                Board temp_board_for_san = original_board_state_at_root;
+                for (int k = 0; k < overall_best_pv_length; k++) {
+                    char san_buffer[10];
+                    // Ensure the move struct passed to move_to_san is complete if make_move modifies it.
+                    // Here, overall_best_pv[k] should be the original move struct.
+                    move_to_san(&temp_board_for_san, &overall_best_pv[k], san_buffer, sizeof(san_buffer));
+                    printf("%s ", san_buffer);
 
-                // make_move needs a non-const Move*. If overall_best_pv[k] is const, make a copy.
-                Move temp_pv_move = overall_best_pv[k];
-                make_move(&temp_board_for_san, &temp_pv_move);
+                    // make_move needs a non-const Move*. If overall_best_pv[k] is const, make a copy.
+                    Move temp_pv_move = overall_best_pv[k];
+                    make_move(&temp_board_for_san, &temp_pv_move);
+                }
+                printf("\n");
             }
-            printf("\n");
 
             if (best_score_for_root_player > alpha) {
                 alpha = best_score_for_root_player;
@@ -348,7 +350,7 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes) 
         // No beta check at the absolute root for finding the true best move.
         // if (alpha >= beta) break; // This would be for fail-soft on root
     }
-    printf("info string Search complete. Best score: %.2f cp\n", best_score_for_root_player * 100.0f);
+    if (verbosity > 0) printf("info string Search complete. Best score: %.2f cp\n", best_score_for_root_player * 100.0f);
     return best_score_for_root_player;
 }
 
