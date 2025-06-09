@@ -3,6 +3,7 @@ import chess.engine
 import json
 import subprocess
 import random
+import sys
 from typing import List, Dict, Any, Optional
 
 # --- Configuration ---
@@ -143,6 +144,15 @@ def generate_diverse_positions(num_positions: int, max_moves: int) -> List[chess
 def main():
     print("Starting dataset generation with Stockfish...")
 
+    # Allow overriding number of positions via positional argument
+    num_positions = NUM_POSITIONS_TO_GENERATE
+    if len(sys.argv) > 1:
+        try:
+            num_positions = int(sys.argv[1])
+            print(f"Overriding number of positions to generate: {num_positions}")
+        except ValueError:
+            print(f"Invalid argument for number of positions: {sys.argv[1]}. Using default: {NUM_POSITIONS_TO_GENERATE}")
+
     stockfish_engine = initialize_stockfish_engine(STOCKFISH_PATH)
     if not stockfish_engine:
         return
@@ -150,12 +160,12 @@ def main():
     # This list will store individual position data dictionaries
     positions_data_list: List[Dict[str, Any]] = []
 
-    print(f"Generating {NUM_POSITIONS_TO_GENERATE} diverse positions...")
-    chess_positions = generate_diverse_positions(NUM_POSITIONS_TO_GENERATE, MAX_MOVES_FOR_RANDOM_POSITIONS)
+    print(f"Generating {num_positions} diverse positions...")
+    chess_positions = generate_diverse_positions(num_positions, MAX_MOVES_FOR_RANDOM_POSITIONS)
     
     generated_count = 0
     for i, board in enumerate(chess_positions):
-        if generated_count >= NUM_POSITIONS_TO_GENERATE:
+        if generated_count >= num_positions:
             break
 
         print(f"Processing position {i+1}/{len(chess_positions)} (Generated: {generated_count}) FEN: {board.fen()}")
