@@ -9,7 +9,7 @@ void init_board(Board *board) {
     memset(board, 0, sizeof(Board));
     board->en_passant_square = -1;
     board->fullmove_number = 1;
-    board->king_pos[WHITE] = -1; // Initialize king positions to an invalid square
+    board->king_pos[WHITE] = -1;  // Initialize king positions to an invalid square
     board->king_pos[BLACK] = -1;
 }
 
@@ -26,7 +26,7 @@ void setup_default_position(Board *board) {
         fprintf(stderr, "Error: Failed to set up default position from FEN. Falling back.\n");
 
         // Fall back to minimal position with just kings
-        init_board(board); // Re-init to clear any partial FEN parse
+        init_board(board);  // Re-init to clear any partial FEN parse
 
         // Place kings in their starting positions
         int white_king_sq = SQUARE(SQUARE_FILE_E, SQUARE_RANK_1);
@@ -40,7 +40,6 @@ void setup_default_position(Board *board) {
         board->pieces[black_king_sq].color = BLACK;
         board->king_pos[BLACK] = black_king_sq;
 
-
         // Update bitboards
         board->piece_bb[WHITE][KING] = square_to_bitboard(white_king_sq);
         board->piece_bb[BLACK][KING] = square_to_bitboard(black_king_sq);
@@ -51,20 +50,20 @@ void setup_default_position(Board *board) {
 
     // Double check that bitboards are consistent with piece positions
     // and that king_pos is correctly set.
-    validate_board_state(board); // This should now also verify king_pos if you extend it.
-                                 // For now, we ensure parse_fen sets it.
+    validate_board_state(board);  // This should now also verify king_pos if you extend it.
+                                  // For now, we ensure parse_fen sets it.
     if (board->king_pos[WHITE] == -1 || board->king_pos[BLACK] == -1) {
-         fprintf(stderr, "Error: King positions not set after setup_default_position.\n");
-         // Attempt to find kings if not set by FEN (e.g. if FEN was invalid but fallback didn't run)
-         for(int i=0; i<64; ++i) {
-            if(board->pieces[i].type == KING) {
+        fprintf(stderr, "Error: King positions not set after setup_default_position.\n");
+        // Attempt to find kings if not set by FEN (e.g. if FEN was invalid but fallback didn't run)
+        for (int i = 0; i < 64; ++i) {
+            if (board->pieces[i].type == KING) {
                 board->king_pos[board->pieces[i].color] = i;
             }
-         }
-         if (board->king_pos[WHITE] == -1 || board->king_pos[BLACK] == -1) {
+        }
+        if (board->king_pos[WHITE] == -1 || board->king_pos[BLACK] == -1) {
             fprintf(stderr, "Critical Error: Could not find kings on board after setup.\n");
             // Handle this critical error, perhaps by exiting or using a known safe state.
-         }
+        }
     }
 }
 
@@ -362,7 +361,6 @@ bool board_to_fen(const Board *board, char *buffer, size_t buffer_size) {
 
     return true;
 }
-
 
 // Get the piece at a given square
 Piece get_piece(const Board *board, int square) {

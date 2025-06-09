@@ -252,7 +252,7 @@ float evaluate_basic(const Board *board) {
     int positional_score_centipawns = 0;
 
     // Piece values in centipawns
-    const int piece_values[7] = {0, 100, 320, 330, 500, 900, 20000}; // EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
+    const int piece_values[7] = {0, 100, 320, 330, 500, 900, 20000};  // EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
 
     for (int sq = 0; sq < 64; sq++) {
         Piece piece = board->pieces[sq];
@@ -266,9 +266,9 @@ float evaluate_basic(const Board *board) {
             if (piece.color == WHITE) {
                 material_score_centipawns += value_cp;
                 positional_score_centipawns += pst_val_cp;
-            } else { // Black piece
-                material_score_centipawns -= value_cp;    // Subtract black's material value from white's score
-                positional_score_centipawns -= pst_val_cp; // Subtract black's positional value (which was from white's view)
+            } else {                                        // Black piece
+                material_score_centipawns -= value_cp;      // Subtract black's material value from white's score
+                positional_score_centipawns -= pst_val_cp;  // Subtract black's positional value (which was from white's view)
             }
         }
     }
@@ -278,7 +278,7 @@ float evaluate_basic(const Board *board) {
     // Convert to pawn units
     float score_pawn_units = (float)total_score_centipawns / 100.0f;
 
-    return score_pawn_units; // This is now always from White's perspective
+    return score_pawn_units;  // This is now always from White's perspective
 }
 
 // Get current evaluation function
