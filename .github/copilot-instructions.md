@@ -24,7 +24,7 @@
   - `tdchess_pipeline.py`: TD(λ) training pipeline
   - `generate_stockfish_dataset.py`: Stockfish dataset generation
   - `diagnose_dataset.py`: Dataset analysis
-  - `check_dataset.py`: Dataset integrity check
+
 - `model/`: Stores datasets and trained models
 - `build/`: CMake/Ninja build directory
 - `CMakeLists.txt`: Build configuration (updated for new structure)
