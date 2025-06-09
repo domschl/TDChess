@@ -23,8 +23,8 @@ TDChess is a modular chess engine built in C (C23 standard) that combines tradit
   - `train_neural.py`: Neural network training
   - `tdchess_pipeline.py`: TD(λ) training pipeline
   - `generate_stockfish_dataset.py`: Stockfish dataset generation
-  - `diagnose_dataset.py`: Dataset analysis
-  - `check_dataset.py`: Dataset integrity check
+  - `diagnose_dataset.py`: Dataset analysis and integrity check
+
 - `model/`: Stores datasets and trained models
 - `build/`: CMake/Ninja build directory
 - `CMakeLists.txt`: Build configuration (updated for new structure)
