@@ -33,3 +33,8 @@ jobs:
 
     - name: Run tests
       run: cd build && ./TDChess test 3
+
+    - name: Check Python training scripts
+      run: |
+        cd training
+        python3 -m py_compile *.py

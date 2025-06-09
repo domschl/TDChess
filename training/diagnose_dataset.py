@@ -30,5 +30,5 @@ def diagnose_dataset(dataset_path):
 
 if __name__ == "__main__":
     import sys
-    diagnose_dataset(sys.argv[1] if len(sys.argv) > 1 else "./model/initial_dataset.json")
+    diagnose_dataset(sys.argv[1] if len(sys.argv) > 1 else "../model/initial_dataset.json")
     

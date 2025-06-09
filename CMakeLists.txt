@@ -23,27 +23,31 @@ find_package(Torch REQUIRED)
 message(STATUS "Found PyTorch: ${Torch_DIR}")
 
 # Source files
+
+# Source files (now in engine/)
 set(SOURCES
-    main.c
-    board.c
-    movegen.c
-    eval.c
-    perft.c
-    search.c
-    neural.c
-    visualization.c
-    td_learning.c
-    zobrist.c
-    python_binding.c
-    self_play.c
+    engine/main.c
+    engine/board.c
+    engine/movegen.c
+    engine/eval.c
+    engine/perft.c
+    engine/search.c
+    engine/neural.c
+    engine/visualization.c
+    engine/td_learning.c
+    engine/zobrist.c
+    engine/python_binding.c
+    engine/self_play.c
+    engine/pytorch_binding.cpp
 )
 
-# PyTorch C++ binding
-set(SOURCES ${SOURCES} pytorch_binding.cpp)
-set_source_files_properties(pytorch_binding.cpp PROPERTIES LANGUAGE CXX)
+
+# PyTorch C++ binding is now in engine/
+set_source_files_properties(engine/pytorch_binding.cpp PROPERTIES LANGUAGE CXX)
+
 
 # Include directories
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/engine)
 include_directories(${TORCH_INCLUDE_DIRS})
 
 # Create executable

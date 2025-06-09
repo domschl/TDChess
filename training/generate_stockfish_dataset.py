@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 
 # --- Configuration ---
 STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # IMPORTANT: Update this path
-OUTPUT_DATASET_PATH = "model/initial_dataset.json"
+OUTPUT_DATASET_PATH = "../model/initial_dataset.json"  # Updated for new script location
 NUM_POSITIONS_TO_GENERATE = 50000  # Adjust as needed
 STOCKFISH_THINK_TIME = 0.1  # Seconds per evaluation
 MAX_MOVES_FOR_RANDOM_POSITIONS = 30 # Max ply for generating diverse positions
@@ -213,8 +213,8 @@ def main():
         # or that it uses the correct interpreter.
         # You might need to specify the python executable if it's not in PATH
         # or if you are using virtual environments.
-        # e.g., ['python3', 'train_neural.py', OUTPUT_DATASET_PATH]
-        training_command = ['python', 'train_neural.py', OUTPUT_DATASET_PATH]
+        # e.g., ['python3', 'train_neural.py', "--dataset", OUTPUT_DATASET_PATH]
+        training_command = ['python', 'training/train_neural.py', "--dataset", OUTPUT_DATASET_PATH]  # Updated path
         print(f"Executing: {' '.join(training_command)}")
         
         # It's often better to stream output or capture it,
@@ -235,7 +235,7 @@ def main():
             print("Check the output above for errors from train_neural.py.")
 
     except FileNotFoundError:
-        print("Error: train_neural.py not found. Make sure it's in the correct path.")
+        print("Error: training/train_neural.py not found. Make sure it's in the correct path.")
     except Exception as e:
         print(f"An error occurred while trying to run train_neural.py: {e}")
 

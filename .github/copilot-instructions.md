@@ -7,17 +7,27 @@
 - Uses CMake with Ninja build system
 - Implements TD(λ) learning for training
 
-### File Structure
-- [main.c](http://_vscodecontentref_/6): Entry point with command processing
-- `board.c/h`: Chess board representation
-- `movegen.c/h`: Move generation
-- `eval.c/h`: Classical evaluation
-- `neural.c/h`: Neural network interface
-- `pytorch_binding.cpp/h`: PyTorch C++ bindings
-- `search.c/h`: Alpha-beta search
-- `td_learning.c/h`: TD(λ) implementation
-- `self_play.c/h`: Self-play generation
-- Python files for training: [train_neural.py](http://_vscodecontentref_/7), [tdchess_pipeline.py](http://_vscodecontentref_/8)
+
+### File Structure (Post-Refactor)
+- `engine/`: All C/C++ source and header files for the chess engine
+  - `main.c`: Entry point with command processing
+  - `board.c/h`: Chess board representation
+  - `movegen.c/h`: Move generation
+  - `eval.c/h`: Classical evaluation
+  - `neural.c/h`: Neural network interface
+  - `pytorch_binding.cpp/h`: PyTorch C++ bindings
+  - `search.c/h`: Alpha-beta search
+  - `td_learning.c/h`: TD(λ) implementation
+  - `self_play.c/h`: Self-play generation
+- `training/`: All Python scripts for dataset generation, training, and pipeline
+  - `train_neural.py`: Neural network training
+  - `tdchess_pipeline.py`: TD(λ) training pipeline
+  - `generate_stockfish_dataset.py`: Stockfish dataset generation
+  - `diagnose_dataset.py`: Dataset analysis
+  - `check_dataset.py`: Dataset integrity check
+- `model/`: Stores datasets and trained models
+- `build/`: CMake/Ninja build directory
+- `CMakeLists.txt`: Build configuration (updated for new structure)
 
 ### Build System
 - Uses CMake 3.16+ with Ninja

@@ -71,9 +71,8 @@ def analyze_dataset(dataset_path):
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze TDChess dataset')
-    parser.add_argument('dataset', help='Path to dataset JSON file')
+    parser.add_argument('dataset', nargs='?', default='../model/initial_dataset.json', help='Path to dataset JSON file (relative to project root)')
     args = parser.parse_args()
-    
     analyze_dataset(args.dataset)
 
 if __name__ == '__main__':

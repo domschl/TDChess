@@ -6,38 +6,57 @@ A chess engine with neural network evaluation and TD(λ) learning capabilities.
 
 TDChess is a modular chess engine built in C (C23 standard) that combines traditional alpha-beta search with neural network evaluation trained using Temporal Difference (TD) learning.
 
-### Core Components
 
-- **Board Representation**: Uses a 64-square array with piece-color encoding for efficient state representation
-- **Move Generation**: Legal move generator with bitboard-based attack detection
-- **Evaluation**: 
-  - Classical static evaluation function (material, piece positions)
-  - Neural network evaluation using PyTorch C++ API
-- **Search**: 
-  - Alpha-beta search with move ordering and transposition tables
-  - Configurable search depth
-- **Neural Network**: 
-  - 14-channel input (6 piece types × 2 colors + 2 state planes)
-  - Residual convolutional architecture with value head
-  - PyTorch models for GPU-accelerated inference (CUDA/MPS)
-- **TD(λ) Learning**: Temporal difference learning with configurable λ parameter
+## Directory Structure (Post-Refactor)
 
-### Neural Network Architecture
+- `engine/`: All C/C++ source and header files for the chess engine
+  - `main.c`: Entry point with command processing
+  - `board.c/h`: Chess board representation
+  - `movegen.c/h`: Move generation
+  - `eval.c/h`: Classical evaluation
+  - `neural.c/h`: Neural network interface
+  - `pytorch_binding.cpp/h`: PyTorch C++ bindings
+  - `search.c/h`: Alpha-beta search
+  - `td_learning.c/h`: TD(λ) implementation
+  - `self_play.c/h`: Self-play generation
+- `training/`: All Python scripts for dataset generation, training, and pipeline
+  - `train_neural.py`: Neural network training
+  - `tdchess_pipeline.py`: TD(λ) training pipeline
+  - `generate_stockfish_dataset.py`: Stockfish dataset generation
+  - `diagnose_dataset.py`: Dataset analysis
+  - `check_dataset.py`: Dataset integrity check
+- `model/`: Stores datasets and trained models
+- `build/`: CMake/Ninja build directory
+- `CMakeLists.txt`: Build configuration (updated for new structure)
 
-The neural network uses a residual CNN architecture specialized for chess position evaluation:
+## Notes on Paths
 
-- **Input**: 14 planes of 8×8 boards
-  - 12 piece planes (6 piece types × 2 colors)
-  - 1 side-to-move plane
-  - 1 en-passant plane
-- **Convolutional Layers**:
-  - Initial layer: 64 filters with 3×3 kernels
-  - Multiple residual blocks with skip connections
-  - Batch normalization for training stability
-- **Value Head**:
-  - Fully connected layers (2048 → 64 → 1)
-  - LeakyReLU activations to prevent dead neurons
-  - Evaluation normalization to handle wide range of position values
+- All Python scripts in `training/` expect paths relative to the project root (e.g., `../model/initial_dataset.json`, `../build/TDChess`).
+- The CMake build system is updated to use sources from `engine/`.
+
+## Usage
+
+### Building the Engine
+
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build
+```
+
+### Running Training Scripts
+
+```sh
+cd training
+python train_neural.py --dataset ../model/initial_dataset.json
+python tdchess_pipeline.py --model-dir ../model
+```
+
+### Generating Datasets
+
+```sh
+cd training
+python generate_stockfish_dataset.py
+```
   - Scaled to centipawns for traditional chess evaluation
 
 ## Building

@@ -15,12 +15,14 @@ import time
 from pathlib import Path
 
 # Import train_neural.py functionality
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
 from train_neural import train_model, ChessNet, ChessDataset
 
 class TDChessTraining:
     """Manages the complete training pipeline for TDChess."""
     
-    def __init__(self, model_dir="./model", iterations=50, games_per_iteration=250,
+    def __init__(self, model_dir="../model", iterations=50, games_per_iteration=250,
                  lambda_value=0.7, temperature=0.8, learning_rate=0.001):
         """Initialize the training pipeline."""
         self.model_dir = Path(model_dir)
@@ -33,7 +35,7 @@ class TDChessTraining:
         self.learning_rate = learning_rate
         
         # Make sure TDChess executable is available
-        self.tdchess_exe = Path("./build/TDChess")
+        self.tdchess_exe = Path("../build/TDChess")
         if not self.tdchess_exe.exists():
             raise FileNotFoundError(f"TDChess executable not found at {self.tdchess_exe}")
             
