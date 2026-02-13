@@ -33,30 +33,32 @@ def get_stockfish_evaluation(engine: chess.engine.SimpleEngine, board: chess.Boa
     try:
         info = engine.analyse(board, chess.engine.Limit(time=think_time))
         
-        # Get score from the perspective of the current player to move
-        # board.turn == chess.WHITE means it's White's turn
-        # board.turn == chess.BLACK means it's Black's turn
-        score_obj = info["score"].pov(board.turn) 
+        # Get score from White's perspective
+        # This keeps it consistent with the engine's neural network targets
+        score_obj = info.get("score")
+        if score_obj is None:
+             print(f"Warning: Stockfish returned no score for FEN {board.fen()}")
+             return None
+             
+        score_obj = score_obj.pov(chess.WHITE)
 
         if score_obj.is_mate():
             # Assign a large finite value for mate.
-            # For pov score, a positive mate score means the current player is mating.
             mate_value = 100000 
-            # score_obj.mate() will be positive if the current player delivers mate.
-            # We want to keep it positive and high.
-            # If mate() is 1 (mate in 1 for current player), score should be high.
-            # If mate() is -1 (mated in 1 by opponent), score should be very low.
-            # The .pov() call already handles the perspective for mate scores.
-            # A positive mate() from pov(board.turn) means board.turn has a mate.
-            if score_obj.mate() > 0: # Current player mates
-                 return mate_value - score_obj.mate() 
-            else: # Current player is being mated (score_obj.mate() is negative)
-                 return -mate_value - score_obj.mate() # Becomes a large negative
+            mate_ply = score_obj.mate()
+            if mate_ply is None:
+                 return 0.0 # Should not happen if is_mate() is true
+                 
+            if mate_ply > 0: # White mates
+                 return mate_value - mate_ply 
+            else: # Black mates
+                 return -mate_value - mate_ply 
         else:
             # Clamp centipawn scores to a reasonable range, e.g., +-10000
-            # score_obj.score() will give cp from current player's perspective
             cp_eval = score_obj.score(mate_score=100000) 
-            return max(min(cp_eval, 10000.0), -10000.0)
+            if cp_eval is None:
+                 return 0.0
+            return max(min(float(cp_eval), 10000.0), -10000.0)
 
     except Exception as e:
         print(f"Error getting evaluation for FEN {board.fen()}: {e}")
