@@ -12,6 +12,8 @@ import json
 import numpy as np
 import torch
 import time
+import concurrent.futures
+import tempfile
 from pathlib import Path
 
 # Import train_neural.py functionality
@@ -23,7 +25,8 @@ class TDChessTraining:
     """Manages the complete training pipeline for TDChess."""
     
     def __init__(self, model_dir="../model", iterations=50, games_per_iteration=250,
-                 lambda_value=0.7, temperature=0.8, learning_rate=0.001):
+                 lambda_value=0.7, temperature=0.8, learning_rate=0.001, num_workers=1,
+                 initial_positions=10000, initial_depth=4):
         """Initialize the training pipeline."""
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(exist_ok=True)
@@ -33,6 +36,9 @@ class TDChessTraining:
         self.lambda_value = lambda_value
         self.temperature = temperature
         self.learning_rate = learning_rate
+        self.num_workers = num_workers
+        self.initial_positions = initial_positions
+        self.initial_depth = initial_depth
         
         # Make sure TDChess executable is available
         self.tdchess_exe = Path("../build/TDChess")
@@ -56,7 +62,7 @@ class TDChessTraining:
             # Check for initial dataset, generate if needed
             if not self.initial_dataset.exists():
                 print(f"Generating initial dataset with classical evaluation...")
-                self.generate_initial_dataset()
+                self.generate_initial_dataset(num_positions=self.initial_positions, max_depth=self.initial_depth)
             
             # Train initial model
             print(f"Training initial model...")
@@ -83,19 +89,88 @@ class TDChessTraining:
     
     def generate_self_play_games(self, model_path, output_games_path):
         """Generate self-play games using the TDChess executable."""
+        if self.num_workers <= 1:
+            base_seed = int(time.time())
+            cmd = [
+                str(self.tdchess_exe),
+                "generate-self-play",
+                str(model_path),
+                str(output_games_path),
+                str(self.games_per_iteration),
+                str(self.temperature),
+                str(base_seed)
+            ]
+            
+            print(f"Generating {self.games_per_iteration} self-play games (seed {base_seed})...")
+            print(f"Running: {' '.join(cmd)}")
+            subprocess.run(cmd, check=True)
+            return output_games_path
+        
+        # Parallel generation
+        print(f"Generating {self.games_per_iteration} self-play games using {self.num_workers} workers...")
+        games_per_worker = self.games_per_iteration // self.num_workers
+        remainder = self.games_per_iteration % self.num_workers
+        
+        # Use nano-second precision for the base seed to avoid collisions
+        base_seed = int(time.time_ns() % (2**31 - 10000))
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            futures = []
+            
+            with concurrent.futures.ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+                for i in range(self.num_workers):
+                    # Add remainder games to the first worker
+                    count = games_per_worker + (remainder if i == 0 else 0)
+                    if count <= 0:
+                        continue
+                        
+                    chunk_path = tmpdir_path / f"games_chunk_{i}.json"
+                    # Ensure each worker gets a very different seed
+                    worker_seed = base_seed + i * 1000
+                    futures.append(executor.submit(
+                        self._run_generation_chunk,
+                        model_path,
+                        chunk_path,
+                        count,
+                        worker_seed
+                    ))
+                
+                # Wait for all chunks to finish
+                for future in concurrent.futures.as_completed(futures):
+                    future.result()
+            
+            # Merge chunks
+            self._merge_game_files(tmpdir_path, output_games_path)
+            
+        return output_games_path
+
+    def _run_generation_chunk(self, model_path, chunk_path, count, seed):
+        """Run a single generation chunk process."""
         cmd = [
             str(self.tdchess_exe),
-            "generate-self-play",  # New command to be added to TDChess
+            "generate-self-play",
             str(model_path),
-            str(output_games_path),
-            str(self.games_per_iteration),
-            str(self.temperature)
+            str(chunk_path),
+            str(count),
+            str(self.temperature),
+            str(seed)
         ]
-        
-        print(f"Generating {self.games_per_iteration} self-play games...")
-        print(f"Running: {' '.join(cmd)}")
         subprocess.run(cmd, check=True)
-        return output_games_path
+
+    def _merge_game_files(self, chunks_dir, output_path):
+        """Merge multiple game JSON files into one."""
+        merged_games = {'games': []}
+        
+        for chunk_file in chunks_dir.glob("games_chunk_*.json"):
+            with open(chunk_file, 'r') as f:
+                data = json.load(f)
+                if 'games' in data:
+                    merged_games['games'].extend(data['games'])
+        
+        with open(output_path, 'w') as f:
+            json.dump(merged_games, f, indent=2)
+        print(f"Merged {len(merged_games['games'])} games into {output_path}")
     
     def apply_td_lambda(self, games_path, output_dataset_path):
         """
@@ -231,6 +306,9 @@ def main():
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for move selection')
     parser.add_argument('--learning-rate', type=float, default=0.001, help='Learning rate for neural network training')
     parser.add_argument('--start-iter', type=int, default=1, help='Starting iteration number')
+    parser.add_argument('--parallel', type=int, default=1, help='Number of parallel workers for game generation')
+    parser.add_argument('--initial-positions', type=int, default=10000, help='Number of positions for initial dataset')
+    parser.add_argument('--initial-depth', type=int, default=4, help='Search depth for initial dataset generation')
     
     args = parser.parse_args()
     
@@ -240,7 +318,10 @@ def main():
         games_per_iteration=args.games,
         lambda_value=args.lambda_value,
         temperature=args.temperature,
-        learning_rate=args.learning_rate
+        learning_rate=args.learning_rate,
+        num_workers=args.parallel,
+        initial_positions=args.initial_positions,
+        initial_depth=args.initial_depth
     )
     
     pipeline.run_training_pipeline(start_iteration=args.start_iter)

@@ -5,6 +5,6 @@
 
 // Generate and export self-play games to a JSON file
 bool generate_self_play_games(const char *model_path, const char *output_path,
-                              int num_games, float temperature);
+                              int num_games, float temperature, unsigned int seed);
 
 #endif  // SELF_PLAY_H

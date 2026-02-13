@@ -123,24 +123,35 @@ Move select_move_with_randomness(Board *board, float temperature) {
         unmake_move(board, moves.moves[i]);
     }
 
-    // Use a lower temperature for obviously better moves
-    float effective_temp = temperature;
-    float score_range = max_score - min_score;
-    if (score_range > 3.0) {
-        // If there's a move that's significantly better, reduce randomness
-        effective_temp = temperature * 0.5;
+    // Epsilon-greedy noise: with small probability, pick a completely random non-blunder move
+    float epsilon = 0.05f; 
+    if (((float)rand() / RAND_MAX) < epsilon) {
+        int non_blunder_count = 0;
+        int non_blunder_indices[MAX_MOVES];
+        for (int i = 0; i < moves.count; i++) {
+            if (!is_blunder[i] || !has_non_blunder_moves) {
+                non_blunder_indices[non_blunder_count++] = i;
+            }
+        }
+        if (non_blunder_count > 0) {
+            return moves.moves[non_blunder_indices[rand() % non_blunder_count]];
+        }
     }
 
     // Apply temperature and convert to probabilities
+    // Temperature is typically in "pawn units" (e.g. 0.8), but scores are in centipawns.
+    // We scale temperature by 100 to match centipawns.
+    float scaled_temp = temperature * 100.0f;
+    if (scaled_temp < 1.0f) scaled_temp = 1.0f; // Prevent division by very small/zero
+
     float total_probability = 0.0f;
     for (int i = 0; i < moves.count; i++) {
         if (scores[i] == -INFINITY) {
-            // Skip blunders
             continue;
         }
 
         // Adjust scores relative to maximum (for numerical stability)
-        scores[i] = exp((scores[i] - max_score) / effective_temp);
+        scores[i] = exp((scores[i] - max_score) / scaled_temp);
         total_probability += scores[i];
     }
 

@@ -571,6 +571,7 @@ int main(int argc, char **argv) {
             const char *output_path = argv[3];
             int num_games = atoi(argv[4]);
             float temperature = atof(argv[5]);
+            unsigned int seed = (argc > 6) ? (unsigned int)atoi(argv[6]) : (unsigned int)time(NULL);
 
             if (num_games <= 0) {
                 printf("Number of games must be positive\n");
@@ -582,7 +583,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
 
-            bool success = generate_self_play_games(model_path, output_path, num_games, temperature);
+            bool success = generate_self_play_games(model_path, output_path, num_games, temperature, seed);
             return success ? 0 : 1;
         } else if (strcmp(argv[1], "test-pytorch") == 0) {
             if (argc < 3) {

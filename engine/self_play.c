@@ -13,9 +13,9 @@
 
 // Generate and export self-play games to a JSON file
 bool generate_self_play_games(const char *model_path, const char *output_path,
-                              int num_games, float temperature) {
-    printf("Generating %d self-play games with temperature %.2f\n",
-           num_games, temperature);
+                              int num_games, float temperature, unsigned int seed) {
+    printf("Generating %d self-play games with temperature %.2f (seed %u)\n",
+           num_games, temperature, seed);
 
     // Initialize neural network
     if (!initialize_neural(model_path)) {
@@ -42,6 +42,10 @@ bool generate_self_play_games(const char *model_path, const char *output_path,
 
     // Generate each game
     for (int game_idx = 0; game_idx < num_games; game_idx++) {
+        // Seed each game individually to ensure diversity, especially in parallel workers
+        // Using both base seed and game index to ensure unique sequences
+        srand(seed + game_idx);
+
         // Start a new game
         fprintf(file, "    {\n");
         fprintf(file, "      \"positions\": [\n");
