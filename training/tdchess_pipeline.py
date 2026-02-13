@@ -12,6 +12,7 @@ import json
 import numpy as np
 import torch
 import time
+import re
 import concurrent.futures
 import tempfile
 from pathlib import Path
@@ -54,6 +55,22 @@ class TDChessTraining:
                                   "mps" if torch.backends.mps.is_available() else "cpu")
         print(f"Using device: {self.device}")
         
+    def find_latest_iteration(self):
+        """Scan the model directory for the latest iteration model."""
+        latest_iter = -1
+        for f in self.model_dir.glob("chess_model_iter_*.pt"):
+            try:
+                # Extract number from chess_model_iter_N.pt
+                # Use regex to be more robust
+                match = re.search(r'chess_model_iter_(\d+)\.pt$', f.name)
+                if match:
+                    iter_num = int(match.group(1))
+                    if iter_num > latest_iter:
+                        latest_iter = iter_num
+            except (ValueError, IndexError):
+                continue
+        return latest_iter
+
     def ensure_initial_model(self):
         """Make sure we have an initial model, create one if needed."""
         if not self.initial_model.exists():
@@ -257,13 +274,35 @@ class TDChessTraining:
     # Update output model paths
     def run_training_pipeline(self, start_iteration=1):
         """Run the complete training pipeline."""
-        print(f"Starting TDChess training pipeline with {self.iterations} iterations")
+        # Auto-detect latest iteration if starting from 1 (default)
+        if start_iteration == 1:
+            latest = self.find_latest_iteration()
+            if latest >= 0:
+                print(f"Detected existing models up to iteration {latest}.")
+                print(f"Automatically continuing from iteration {latest + 1}.")
+                start_iteration = latest + 1
         
-        # Ensure we have an initial model
-        self.ensure_initial_model()
+        print(f"Starting TDChess training pipeline from iteration {start_iteration} (total iterations: {self.iterations})")
         
-        # Current model starts with the initial model
-        current_model = self.initial_model
+        # Determine the model to start with
+        if start_iteration == 1:
+            self.ensure_initial_model()
+            current_model = self.initial_model
+        else:
+            current_model = self.model_dir / f"chess_model_iter_{start_iteration - 1}.pt"
+            if not current_model.exists():
+                print(f"Warning: Starting model {current_model} not found!")
+                print("Checking for any available model...")
+                latest = self.find_latest_iteration()
+                if latest >= 0:
+                    current_model = self.model_dir / f"chess_model_iter_{latest}.pt"
+                    print(f"Falling back to latest available model: {current_model}")
+                    start_iteration = latest + 1
+                else:
+                    print("No models found. Starting from scratch.")
+                    self.ensure_initial_model()
+                    current_model = self.initial_model
+                    start_iteration = 1
         
         # Iterative training
         for i in range(start_iteration, self.iterations + 1):
@@ -305,7 +344,7 @@ def main():
     parser.add_argument('--lambda', dest='lambda_value', type=float, default=0.7, help='TD(λ) parameter')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for move selection')
     parser.add_argument('--learning-rate', type=float, default=0.001, help='Learning rate for neural network training')
-    parser.add_argument('--start-iter', type=int, default=1, help='Starting iteration number')
+    parser.add_argument('--start-iter', type=int, default=1, help='Starting iteration (default: 1, will auto-detect latest if models exist)')
     parser.add_argument('--parallel', type=int, default=4, help='Number of parallel workers for game generation')
     parser.add_argument('--initial-positions', type=int, default=10000, help='Number of positions for initial dataset')
     parser.add_argument('--initial-depth', type=int, default=4, help='Search depth for initial dataset generation')
