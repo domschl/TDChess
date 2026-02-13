@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 # --- Configuration ---
 STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # IMPORTANT: Update this path
 OUTPUT_DATASET_PATH = "../model/initial_dataset.json"  # Updated for new script location
-NUM_POSITIONS_TO_GENERATE = 50000  # Adjust as needed
+NUM_POSITIONS_TO_GENERATE = 5000  # Adjust as needed
 STOCKFISH_THINK_TIME = 0.1  # Seconds per evaluation
 MAX_MOVES_FOR_RANDOM_POSITIONS = 30 # Max ply for generating diverse positions
 

@@ -224,7 +224,7 @@ class TDChessTraining:
 def main():
     """Main entry point for TDChess training pipeline."""
     parser = argparse.ArgumentParser(description='TDChess Training Pipeline')
-    parser.add_argument('--model-dir', type=str, default='./model', help='Directory for models and datasets')
+    parser.add_argument('--model-dir', type=str, default='../model', help='Directory for models and datasets')
     parser.add_argument('--iterations', type=int, default=50, help='Number of training iterations')
     parser.add_argument('--games', type=int, default=250, help='Number of self-play games per iteration')
     parser.add_argument('--lambda', dest='lambda_value', type=float, default=0.7, help='TD(λ) parameter')

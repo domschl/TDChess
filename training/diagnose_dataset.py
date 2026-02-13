@@ -57,6 +57,7 @@ def diagnose_dataset(dataset_path):
     
     # Check evaluations
     evals = [pos["evaluation"] for pos in positions]
+    evals = np.clip(evals, -10000, 10000)
     print(f"Eval stats: min={min(evals):.2f}, max={max(evals):.2f}, mean={np.mean(evals):.2f}, std={np.std(evals):.2f}")
     
     # Check for tensor problems
