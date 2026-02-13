@@ -181,8 +181,8 @@ void test_evaluation(void) {
     printf("Evaluating starting position:\n");
     print_board_pretty(&board);
 
-    float eval = evaluate_basic(&board);
-    printf("Evaluation: %.2f\n", eval);
+    float eval = evaluate_position(&board);
+    printf("Evaluation (side to move): %.2f\n", eval);
 
     // Make a move to test different positions
     Move e4 = {
@@ -204,8 +204,8 @@ void test_evaluation(void) {
     printf("\nAfter 1. e4:\n");
     print_board_pretty(&board);
 
-    eval = evaluate_basic(&board);
-    printf("Evaluation: %.2f\n", eval);
+    eval = evaluate_position(&board);
+    printf("Evaluation (side to move): %.2f\n", eval);
 }
 
 // Add this function to play against the computer

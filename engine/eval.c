@@ -17,32 +17,23 @@ void set_evaluation_type(EvaluationType type) {
 }
 
 // Main evaluation function that dispatches to the appropriate implementation
-// This function will now ALWAYS return the evaluation from White's perspective, in pawn units.
+// This function returns the evaluation from the SIDE TO MOVE (S2M) perspective, in pawn units.
 float evaluate_position(const Board *board) {
     float score_pawn_units;
 
     switch (current_eval_type) {
     case EVAL_NEURAL:
-        // evaluate_neural returns score in CENTIPAWNS from CURRENT PLAYER's perspective.
-        float nn_score_current_player_centipawns = evaluate_neural(board);
-
-        float nn_score_white_perspective_centipawns;
-        if (board->side_to_move == WHITE) {
-            // If White is to move, current player's score is already from White's perspective (relative to White)
-            // but evaluate_neural gives it from White's actual view.
-            nn_score_white_perspective_centipawns = nn_score_current_player_centipawns;
-        } else {
-            // If Black is to move, a positive score from current player (Black) is bad for White.
-            // So, negate it to get White's perspective.
-            nn_score_white_perspective_centipawns = -nn_score_current_player_centipawns;
-        }
-        // Convert to PAWN UNITS for evaluate_position's contract
-        score_pawn_units = nn_score_white_perspective_centipawns / 100.0f;
+        // evaluate_neural returns centipawns from CURRENT PLAYER's (S2M) perspective.
+        // We just convert to pawn units.
+        score_pawn_units = evaluate_neural(board) / 100.0f;
         break;
+
     case EVAL_BASIC:
     default:
         // evaluate_basic returns score from White's perspective directly, in pawn units.
-        score_pawn_units = evaluate_basic(board);
+        float white_score_pawn_units = evaluate_basic(board);
+        // Convert to side-to-move perspective for search compatibility
+        score_pawn_units = (board->side_to_move == WHITE) ? white_score_pawn_units : -white_score_pawn_units;
         break;
     }
     return score_pawn_units;

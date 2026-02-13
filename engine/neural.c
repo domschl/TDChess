@@ -100,7 +100,7 @@ float evaluate_neural(const Board *board) {
 // Function for testing the neural evaluation
 void test_neural_evaluation(const Board *board) {
     if (pytorch_initialized) {
-        printf("PyTorch Neural evaluation: %.3f centipawns\n", evaluate_neural(board));
+        printf("PyTorch Neural evaluation (side to move): %.3f centipawns\n", evaluate_neural(board));
     } else {
         printf("Neural evaluation skipped (PyTorch not initialized).\n");
     }

@@ -632,9 +632,8 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
 
     (*nodes)++;
 
-    // Stand pat score - ensure it's relative to side to move
-    float raw_eval = evaluate_position(board);
-    float stand_pat = (board->side_to_move == WHITE) ? raw_eval : -raw_eval;
+    // Stand pat score - evaluate_position now returns score relative to side to move
+    float stand_pat = evaluate_position(board);
 
     // Beta cutoff
     if (stand_pat >= beta) {
