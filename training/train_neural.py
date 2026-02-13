@@ -276,14 +276,28 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            # When saving the model, store the max_eval value for later use
+            # Save state dict for Python
             model_info = {
                 "state_dict": model.state_dict(),
                 "max_eval": max_eval
             }
             torch.save(model_info, best_model_path)
+
+            # Also save TorchScript version of the best model for C++ engine
+            try:
+                model.eval()
+                # Move to CPU for tracing to ensure portability
+                cpu_model = model.cpu()
+                example_input = torch.randn(1, 14, 8, 8)
+                traced_best = torch.jit.trace(cpu_model, example_input)
+                torch.jit.save(traced_best, str(best_model_path.with_suffix('.jit.pt')))
+                # Move back to original device
+                model.to(device)
+                print(f"New best model saved with validation loss {val_loss:.6f} (JIT version: {best_model_path.with_suffix('.jit.pt')})")
+            except Exception as e:
+                print(f"Warning: Could not save JIT version of best model: {e}")
+                model.to(device)
             patience_counter = 0
-            print(f"New best model saved with validation loss: {val_loss:.6f}")
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -305,9 +319,15 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     plt.savefig(Path(output_model).with_suffix('.png'))
     
     # Save model in TorchScript format for C++ inference
-    example_input = torch.randn(1, 14, 8, 8, device=device)
+    # Explicitly move to CPU for tracing to ensure portability across different hardware setups
+    model.cpu()
+    model.eval()
+    example_input = torch.randn(1, 14, 8, 8)
     traced_script_module = torch.jit.trace(model, example_input)
-    traced_script_module.save(output_model)
+    torch.jit.save(traced_script_module, output_model)
+    
+    # Move model back to device if needed (though function is ending)
+    model.to(device)
     
     print(f"Model exported to {output_model}")
     
