@@ -327,8 +327,8 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Train a neural network for chess evaluation')
-    parser.add_argument('--dataset', type=str, default='model/initial_dataset.json', help='Path to dataset JSON file')
-    parser.add_argument('--output', type=str, default='model/chess_model_iter_0.pt', help='Output PyTorch model path')
+    parser.add_argument('--dataset', type=str, default='../model/initial_dataset.json', help='Path to dataset JSON file (relative to project root)')
+    parser.add_argument('--output', type=str, default='../model/chess_model_iter_0.pt', help='Output PyTorch model path (relative to project root)')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size for training')
     parser.add_argument('--learning-rate', type=float, default=0.0001, help='Initial learning rate')

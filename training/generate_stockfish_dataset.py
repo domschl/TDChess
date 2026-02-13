@@ -3,11 +3,12 @@ import chess.engine
 import json
 import subprocess
 import random
+import sys
 from typing import List, Dict, Any, Optional
 
 # --- Configuration ---
 STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # IMPORTANT: Update this path
-OUTPUT_DATASET_PATH = "model/initial_dataset.json"
+OUTPUT_DATASET_PATH = "../model/initial_dataset.json"  # Updated for new script location
 NUM_POSITIONS_TO_GENERATE = 50000  # Adjust as needed
 STOCKFISH_THINK_TIME = 0.1  # Seconds per evaluation
 MAX_MOVES_FOR_RANDOM_POSITIONS = 30 # Max ply for generating diverse positions
@@ -143,6 +144,15 @@ def generate_diverse_positions(num_positions: int, max_moves: int) -> List[chess
 def main():
     print("Starting dataset generation with Stockfish...")
 
+    # Allow overriding number of positions via positional argument
+    num_positions = NUM_POSITIONS_TO_GENERATE
+    if len(sys.argv) > 1:
+        try:
+            num_positions = int(sys.argv[1])
+            print(f"Overriding number of positions to generate: {num_positions}")
+        except ValueError:
+            print(f"Invalid argument for number of positions: {sys.argv[1]}. Using default: {NUM_POSITIONS_TO_GENERATE}")
+
     stockfish_engine = initialize_stockfish_engine(STOCKFISH_PATH)
     if not stockfish_engine:
         return
@@ -150,12 +160,12 @@ def main():
     # This list will store individual position data dictionaries
     positions_data_list: List[Dict[str, Any]] = []
 
-    print(f"Generating {NUM_POSITIONS_TO_GENERATE} diverse positions...")
-    chess_positions = generate_diverse_positions(NUM_POSITIONS_TO_GENERATE, MAX_MOVES_FOR_RANDOM_POSITIONS)
+    print(f"Generating {num_positions} diverse positions...")
+    chess_positions = generate_diverse_positions(num_positions, MAX_MOVES_FOR_RANDOM_POSITIONS)
     
     generated_count = 0
     for i, board in enumerate(chess_positions):
-        if generated_count >= NUM_POSITIONS_TO_GENERATE:
+        if generated_count >= num_positions:
             break
 
         print(f"Processing position {i+1}/{len(chess_positions)} (Generated: {generated_count}) FEN: {board.fen()}")
@@ -213,8 +223,8 @@ def main():
         # or that it uses the correct interpreter.
         # You might need to specify the python executable if it's not in PATH
         # or if you are using virtual environments.
-        # e.g., ['python3', 'train_neural.py', OUTPUT_DATASET_PATH]
-        training_command = ['python', 'train_neural.py', OUTPUT_DATASET_PATH]
+        # e.g., ['python3', 'train_neural.py', "--dataset", OUTPUT_DATASET_PATH]
+        training_command = ['python', 'training/train_neural.py', "--dataset", OUTPUT_DATASET_PATH]  # Updated path
         print(f"Executing: {' '.join(training_command)}")
         
         # It's often better to stream output or capture it,
@@ -235,7 +245,7 @@ def main():
             print("Check the output above for errors from train_neural.py.")
 
     except FileNotFoundError:
-        print("Error: train_neural.py not found. Make sure it's in the correct path.")
+        print("Error: training/train_neural.py not found. Make sure it's in the correct path.")
     except Exception as e:
         print(f"An error occurred while trying to run train_neural.py: {e}")
 
