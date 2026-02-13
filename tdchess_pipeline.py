@@ -20,7 +20,7 @@ from train_neural import train_model, ChessNet, ChessDataset
 class TDChessTraining:
     """Manages the complete training pipeline for TDChess."""
     
-    def __init__(self, model_dir="./model", iterations=50, games_per_iteration=250,
+    def __init__(self, model_dir="./model", iterations=250, games_per_iteration=250,
                  lambda_value=0.7, temperature=0.8, learning_rate=0.001):
         """Initialize the training pipeline."""
         self.model_dir = Path(model_dir)
@@ -61,7 +61,7 @@ class TDChessTraining:
             train_model(
                 str(self.initial_dataset),
                 str(self.initial_model),
-                epochs=70,
+                epochs=250,
                 batch_size=128,
                 learning_rate=self.learning_rate
             )
@@ -207,8 +207,8 @@ class TDChessTraining:
             train_model(
                 str(td_dataset_path),
                 str(output_model),
-                epochs=50,
-                batch_size=64,
+                100,
+                batch_size=128,
                 learning_rate=self.learning_rate
             )
             
