@@ -153,12 +153,20 @@ Example training workflow:
 # Analyze dataset (optional)
 python diagnose_dataset.py model/initial_dataset.json
 
-# Run the complete training pipeline
-python tdchess_pipeline.py
+# Run the complete training pipeline (defaults to 4 parallel workers)
+python tdchess_pipeline.py --parallel 4
 
 # Test the improved model
 ./TDChess play-neural model/chess_model_iter_50.pt 4
 ```
+
+### Game Diversity and Parallelism
+
+TDChess features a high-performance, parallel training pipeline:
+
+- **Parallel Self-Play**: Game generation is distributed across multiple workers (`--parallel` flag).
+- **Unique Seeding**: Each parallel process and each game within those processes uses high-precision, unique seeding to ensure maximum diversity.
+- **Exploration**: Move selection includes ε-greedy noise (5%) and corrected temperature scaling to avoid deterministic cycles and ensure the engine explores a wide variety of positions.
 
 ### Python Training Components
 
