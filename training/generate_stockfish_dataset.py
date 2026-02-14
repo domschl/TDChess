@@ -27,11 +27,11 @@ def initialize_stockfish_engine(engine_paths: list[str]) -> chess.engine.SimpleE
             try:
                 engine = chess.engine.SimpleEngine.popen_uci(engine_path)
                 # Set options for faster processing
-                engine.configure({"Threads": 8, "Hash": 256}) 
+                engine.configure({"Threads": 8, "Hash": 1024}) 
                 return engine
             except FileNotFoundError:
                 pass
-    print("Please update STOCKFISH_PATHS in the script.")
+    print("Please update STOCKFISH_PATHS in the script.", flush=True)
     return None
 
 def get_stockfish_evaluation(engine: chess.engine.SimpleEngine, board: chess.Board, think_time: float) -> Optional[float]:
@@ -43,7 +43,7 @@ def get_stockfish_evaluation(engine: chess.engine.SimpleEngine, board: chess.Boa
         # This keeps it consistent with the engine's neural network targets
         score_obj = info.get("score")
         if score_obj is None:
-             print(f"Warning: Stockfish returned no score for FEN {board.fen()}")
+             print(f"Warning: Stockfish returned no score for FEN {board.fen()}", flush=True)
              return None
              
         score_obj = score_obj.pov(chess.WHITE)
@@ -67,7 +67,7 @@ def get_stockfish_evaluation(engine: chess.engine.SimpleEngine, board: chess.Boa
             return max(min(float(cp_eval), 10000.0), -10000.0)
 
     except Exception as e:
-        print(f"Error getting evaluation for FEN {board.fen()}: {e}")
+        print(f"Error getting evaluation for FEN {board.fen()}: {e}", flush=True)
         return None
 
 def convert_board_to_tensor(board: chess.Board) -> list[float] | None:
@@ -119,8 +119,7 @@ def convert_board_to_tensor(board: chess.Board) -> list[float] | None:
     # Other squares in plane 13 remain 0.0 due to initialization.
 
     # Final check, though it should always be correct if logic is sound
-    if len(tensor) != tensor_size:
-        print(f"Error: Tensor has incorrect size {len(tensor)}. Expected {tensor_size} for FEN {board.fen()}.")
+        print(f"Error: Tensor has incorrect size {len(tensor)}. Expected {tensor_size} for FEN {board.fen()}.", flush=True)
         return None
         
     return tensor
@@ -131,7 +130,7 @@ def generate_diverse_positions(engine: chess.engine.SimpleEngine, num_positions:
     positions = []
     seen_fens = set()
     
-    print(f"Generating {num_positions} unique positions with engine assisted diversity...")
+    print(f"Generating {num_positions} unique positions with engine assisted diversity...", flush=True)
     
     attempts = 0
     while len(positions) < num_positions and attempts < num_positions * 10:
@@ -170,22 +169,22 @@ def generate_diverse_positions(engine: chess.engine.SimpleEngine, num_positions:
             positions.append(board.copy())
             
         if len(positions) % 10 == 0 and len(positions) > 0:
-            print(f"  Found {len(positions)} unique positions... (Attempts: {attempts})")
+            print(f"  Found {len(positions)} unique positions... (Attempts: {attempts})", flush=True)
             
     return positions
 
 # --- Main Script Logic ---
 def main():
-    print("Starting dataset generation with Stockfish...")
+    print("Starting dataset generation with Stockfish...", flush=True)
 
     # Allow overriding number of positions via positional argument
     num_positions = NUM_POSITIONS_TO_GENERATE
     if len(sys.argv) > 1:
         try:
             num_positions = int(sys.argv[1])
-            print(f"Overriding number of positions to generate: {num_positions}")
+            print(f"Overriding number of positions to generate: {num_positions}", flush=True)
         except ValueError:
-            print(f"Invalid argument for number of positions: {sys.argv[1]}. Using default: {NUM_POSITIONS_TO_GENERATE}")
+            print(f"Invalid argument for number of positions: {sys.argv[1]}. Using default: {NUM_POSITIONS_TO_GENERATE}", flush=True)
 
     stockfish_engine = initialize_stockfish_engine(STOCKFISH_PATHS)
     if not stockfish_engine:
@@ -194,7 +193,7 @@ def main():
     # This list will store individual position data dictionaries
     positions_data_list: list[dict[str, Any]] = []
 
-    print(f"Generating {num_positions} diverse positions...")
+    print(f"Generating {num_positions} diverse positions...", flush=True)
     chess_positions = generate_diverse_positions(stockfish_engine, num_positions, MAX_MOVES_FOR_RANDOM_POSITIONS)
     
     generated_count = 0
@@ -202,21 +201,21 @@ def main():
         if generated_count >= num_positions:
             break
 
-        print(f"Processing position {i+1}/{len(chess_positions)} (Generated: {generated_count}) FEN: {board.fen()}")
+        print(f"Processing position {i+1}/{len(chess_positions)} (Generated: {generated_count}) FEN: {board.fen()}", flush=True)
 
         evaluation = get_stockfish_evaluation(stockfish_engine, board, STOCKFISH_THINK_TIME)
         if evaluation is None:
-            print(f"Skipping position due to evaluation error: {board.fen()}")
+            print(f"Skipping position due to evaluation error: {board.fen()}", flush=True)
             continue
 
         board_tensor = convert_board_to_tensor(board)
         if board_tensor is None:
-            print(f"Skipping position due to tensor conversion error: {board.fen()}")
+            print(f"Skipping position due to tensor conversion error: {board.fen()}", flush=True)
             continue
         
         if len(board_tensor) != 896:
-            print(f"Error: Tensor for FEN {board.fen()} has incorrect size {len(board_tensor)}. Expected 896.")
-            print("Please check your `convert_board_to_tensor` implementation.")
+            print(f"Error: Tensor for FEN {board.fen()} has incorrect size {len(board_tensor)}. Expected 896.", flush=True)
+            print("Please check your `convert_board_to_tensor` implementation.", flush=True)
             continue
 
         # Structure each position entry as expected by ChessDataset
@@ -231,29 +230,29 @@ def main():
         generated_count +=1
 
         if (i + 1) % 100 == 0:
-            print(f"Generated {generated_count} positions so far...")
+            print(f"Generated {generated_count} positions so far...", flush=True)
 
     stockfish_engine.quit()
-    print(f"Generated a total of {len(positions_data_list)} positions.")
+    print(f"Generated a total of {len(positions_data_list)} positions.", flush=True)
 
     if not positions_data_list:
-        print("No data was generated. Exiting.")
+        print("No data was generated. Exiting.", flush=True)
         return
 
     # Create the final dataset structure with the "positions" key
     final_dataset_to_save = {"positions": positions_data_list}
 
-    print(f"Saving dataset to {OUTPUT_DATASET_PATH}...")
+    print(f"Saving dataset to {OUTPUT_DATASET_PATH}...", flush=True)
     try:
         OUTPUT_DATASET_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(OUTPUT_DATASET_PATH, 'w') as f:
             json.dump(final_dataset_to_save, f, indent=2) # Save the new structure
-        print("Dataset saved successfully.")
+        print("Dataset saved successfully.", flush=True)
     except IOError as e:
         print(f"Error saving dataset: {e}")
         return
 
-    print("\nStarting training process with the new dataset...")
+    print("\nStarting training process with the new dataset...", flush=True)
     try:
         # Ensure your Python environment for train_neural.py is active
         # or that it uses the correct interpreter.
@@ -262,7 +261,7 @@ def main():
         # e.g., ['python3', 'train_neural.py', "--dataset", OUTPUT_DATASET_PATH]
         train_script_path = SCRIPT_DIR / "train_neural.py"
         training_command = ['python', str(train_script_path), "--dataset", str(OUTPUT_DATASET_PATH)]  
-        print(f"Executing: {' '.join(training_command)}")
+        print(f"Executing: {' '.join(training_command)}", flush=True)
         
         # It's often better to stream output or capture it,
         # but for simplicity, this will just run it.
@@ -270,21 +269,21 @@ def main():
         
         if process.stdout:
             for line in iter(process.stdout.readline, b''):
-                print(line.decode().strip())
+                print(line.decode().strip(), flush=True)
             process.stdout.close()
         
         return_code = process.wait()
 
         if return_code == 0:
-            print("Training process completed successfully.")
+            print("Training process completed successfully.", flush=True)
         else:
-            print(f"Training process failed with exit code {return_code}.")
-            print("Check the output above for errors from train_neural.py.")
+            print(f"Training process failed with exit code {return_code}.", flush=True)
+            print("Check the output above for errors from train_neural.py.", flush=True)
 
     except FileNotFoundError:
-        print("Error: training/train_neural.py not found. Make sure it's in the correct path.")
+        print("Error: training/train_neural.py not found. Make sure it's in the correct path.", flush=True)
     except Exception as e:
-        print(f"An error occurred while trying to run train_neural.py: {e}")
+        print(f"An error occurred while trying to run train_neural.py: {e}", flush=True)
 
 if __name__ == "__main__":
     main()

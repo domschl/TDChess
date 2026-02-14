@@ -92,17 +92,27 @@ class TDChessTraining:
             )
     
     def generate_initial_dataset(self, num_positions=10000, max_depth=4):
-        """Generate initial dataset using classical evaluation."""
+        """Generate initial dataset using Stockfish and the Python script."""
+        # Use the Python script for higher quality Stockfish evaluations
+        script_path = SCRIPT_DIR / "generate_stockfish_dataset.py"
         cmd = [
-            str(self.tdchess_exe),
-            "generate-dataset",
-            str(self.initial_dataset),
-            str(num_positions),
-            str(max_depth)
+            sys.executable,
+            str(script_path),
+            str(num_positions)
         ]
         
-        print(f"Running: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True)
+        print(f"Running Stockfish dataset generation: {' '.join(cmd)}")
+        # Use Popen to stream output in real-time
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        
+        if process.stdout:
+            for line in iter(process.stdout.readline, ""):
+                print(f"[StockfishGen] {line.strip()}", flush=True)
+            process.stdout.close()
+            
+        return_code = process.wait()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(return_code, cmd)
     
     def generate_self_play_games(self, model_path, output_games_path):
         """Generate self-play games using the TDChess executable."""
