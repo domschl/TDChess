@@ -21,11 +21,13 @@ MAX_MOVES_FOR_RANDOM_POSITIONS = 30 # Max ply for generating diverse positions
 # --- Helper Functions ---
 
 def initialize_stockfish_engine(engine_paths: list[str]) -> chess.engine.SimpleEngine | None:
-    """Initializes the Stockfish engine."""
+    """Initializes the Stockfish engine with multi-threading."""
     for engine_path in engine_paths:
         if os.path.exists(engine_path):
             try:
                 engine = chess.engine.SimpleEngine.popen_uci(engine_path)
+                # Set options for faster processing
+                engine.configure({"Threads": 8, "Hash": 256}) 
                 return engine
             except FileNotFoundError:
                 pass
@@ -167,8 +169,8 @@ def generate_diverse_positions(engine: chess.engine.SimpleEngine, num_positions:
             seen_fens.add(fen_key)
             positions.append(board.copy())
             
-        if len(positions) % 100 == 0 and len(positions) > 0:
-            print(f"  Found {len(positions)} unique positions...")
+        if len(positions) % 10 == 0 and len(positions) > 0:
+            print(f"  Found {len(positions)} unique positions... (Attempts: {attempts})")
             
     return positions
 
