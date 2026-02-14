@@ -18,8 +18,8 @@ import tempfile
 from pathlib import Path
 
 # Import train_neural.py functionality
-import sys
-sys.path.insert(0, str(Path(__file__).parent))
+SCRIPT_DIR = Path(__file__).parent.absolute()
+sys.path.insert(0, str(SCRIPT_DIR))
 from train_neural import train_model, ChessNet, ChessDataset
 
 class TDChessTraining:
@@ -42,7 +42,7 @@ class TDChessTraining:
         self.initial_depth = initial_depth
         
         # Make sure TDChess executable is available
-        self.tdchess_exe = Path("../build/TDChess")
+        self.tdchess_exe = SCRIPT_DIR.parent / "build" / "TDChess"
         if not self.tdchess_exe.exists():
             raise FileNotFoundError(f"TDChess executable not found at {self.tdchess_exe}")
             
@@ -337,8 +337,9 @@ class TDChessTraining:
 
 def main():
     """Main entry point for TDChess training pipeline."""
+    default_model_dir = SCRIPT_DIR.parent / 'model'
     parser = argparse.ArgumentParser(description='TDChess Training Pipeline')
-    parser.add_argument('--model-dir', type=str, default='../model', help='Directory for models and datasets')
+    parser.add_argument('--model-dir', type=str, default=str(default_model_dir), help='Directory for models and datasets')
     parser.add_argument('--iterations', type=int, default=50, help='Number of training iterations')
     parser.add_argument('--games', type=int, default=250, help='Number of self-play games per iteration')
     parser.add_argument('--lambda', dest='lambda_value', type=float, default=0.7, help='TD(λ) parameter')

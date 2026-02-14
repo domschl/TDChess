@@ -6,9 +6,12 @@ import random
 import sys
 from typing import List, Dict, Any, Optional
 
+from pathlib import Path
+
 # --- Configuration ---
+SCRIPT_DIR = Path(__file__).parent.absolute()
 STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # IMPORTANT: Update this path
-OUTPUT_DATASET_PATH = "../model/initial_dataset.json"  # Updated for new script location
+OUTPUT_DATASET_PATH = SCRIPT_DIR.parent / "model" / "initial_dataset.json"
 NUM_POSITIONS_TO_GENERATE = 5000  # Adjust as needed
 STOCKFISH_THINK_TIME = 0.1  # Seconds per evaluation
 MAX_MOVES_FOR_RANDOM_POSITIONS = 30 # Max ply for generating diverse positions
@@ -212,6 +215,7 @@ def main():
 
     print(f"Saving dataset to {OUTPUT_DATASET_PATH}...")
     try:
+        OUTPUT_DATASET_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(OUTPUT_DATASET_PATH, 'w') as f:
             json.dump(final_dataset_to_save, f, indent=2) # Save the new structure
         print("Dataset saved successfully.")
@@ -226,7 +230,8 @@ def main():
         # You might need to specify the python executable if it's not in PATH
         # or if you are using virtual environments.
         # e.g., ['python3', 'train_neural.py', "--dataset", OUTPUT_DATASET_PATH]
-        training_command = ['python', 'training/train_neural.py', "--dataset", OUTPUT_DATASET_PATH]  # Updated path
+        train_script_path = SCRIPT_DIR / "train_neural.py"
+        training_command = ['python', str(train_script_path), "--dataset", str(OUTPUT_DATASET_PATH)]  
         print(f"Executing: {' '.join(training_command)}")
         
         # It's often better to stream output or capture it,

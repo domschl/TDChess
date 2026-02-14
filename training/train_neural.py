@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader, random_split
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).parent.absolute()
+
 class ChessDataset(Dataset):
     """Chess position dataset with normalization for wide evaluation range"""
     
@@ -129,8 +131,8 @@ class ChessNet(nn.Module):
         value = value.view(-1, 32 * 8 * 8)
         value = self.relu(self.value_fc1(value))
         
-        # No activation on final layer - we'll handle this in the loss function
-        value = self.value_fc2(value)
+        # Apply tanh to squash the output to [-1, 1] range
+        value = torch.tanh(self.value_fc2(value))
         
         return value
 
@@ -337,8 +339,6 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
         sample_input = sample_input.unsqueeze(0).to(device)
         with torch.no_grad():
             sample_output = model(sample_input)
-            # Apply tanh to match training
-            sample_output = torch.tanh(sample_output)
         print(f"Sample evaluation - Target: {sample_target:.6f}, Model output: {sample_output.item():.6f}")
     
     return model
@@ -347,8 +347,10 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Train a neural network for chess evaluation')
-    parser.add_argument('--dataset', type=str, default='../model/initial_dataset.json', help='Path to dataset JSON file (relative to project root)')
-    parser.add_argument('--output', type=str, default='../model/chess_model_iter_0.pt', help='Output PyTorch model path (relative to project root)')
+    default_dataset = SCRIPT_DIR.parent / 'model' / 'initial_dataset.json'
+    default_output = SCRIPT_DIR.parent / 'model' / 'chess_model_iter_0.pt'
+    parser.add_argument('--dataset', type=str, default=str(default_dataset), help='Path to dataset JSON file')
+    parser.add_argument('--output', type=str, default=str(default_output), help='Output PyTorch model path')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=64, help='Batch size for training')
     parser.add_argument('--learning-rate', type=float, default=0.0001, help='Initial learning rate')

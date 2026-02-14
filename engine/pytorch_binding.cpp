@@ -130,8 +130,7 @@ float evaluate_pytorch(const Board *board) {
 
         torch::Tensor output = model->forward(inputs).toTensor();
 
-        // Apply tanh activation to match training
-        output = output.tanh();
+        // Tanh activation is now included in the model itself (forward pass)
 
         // Get scalar value (assuming model outputs a single value)
         float eval_value = output.item<float>();
