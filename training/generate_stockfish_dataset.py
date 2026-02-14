@@ -1,3 +1,4 @@
+from math import e
 import chess
 import chess.engine
 import json
@@ -10,7 +11,7 @@ from pathlib import Path
 
 # --- Configuration ---
 SCRIPT_DIR = Path(__file__).parent.absolute()
-STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # IMPORTANT: Update this path
+STOCKFISH_PATHS = ["/opt/homebrew/bin/stockfish", "/usr/bin/stockfish", "/usr/local/bin/stockfish"]  # IMPORTANT: Update this path
 OUTPUT_DATASET_PATH = SCRIPT_DIR.parent / "model" / "initial_dataset.json"
 NUM_POSITIONS_TO_GENERATE = 5000  # Adjust as needed
 STOCKFISH_THINK_TIME = 0.1  # Seconds per evaluation
@@ -20,16 +21,14 @@ MAX_MOVES_FOR_RANDOM_POSITIONS = 30 # Max ply for generating diverse positions
 
 def initialize_stockfish_engine(engine_path: str) -> Optional[chess.engine.SimpleEngine]:
     """Initializes the Stockfish engine."""
-    try:
-        engine = chess.engine.SimpleEngine.popen_uci(engine_path)
-        return engine
-    except FileNotFoundError:
-        print(f"Error: Stockfish executable not found at {engine_path}")
-        print("Please update STOCKFISH_PATH in the script.")
-        return None
-    except Exception as e:
-        print(f"An error occurred while initializing Stockfish: {e}")
-        return None
+    for engine_path in STOCKFISH_PATHS:
+        try:
+            engine = chess.engine.SimpleEngine.popen_uci(engine_path)
+            return engine
+        except FileNotFoundError:
+            pass
+    print("Please update STOCKFISH_PATHS in the script.")
+    return None
 
 def get_stockfish_evaluation(engine: chess.engine.SimpleEngine, board: chess.Board, think_time: float) -> Optional[float]:
     """Gets Stockfish evaluation for a given board state, from the current player's perspective."""
@@ -158,7 +157,7 @@ def main():
         except ValueError:
             print(f"Invalid argument for number of positions: {sys.argv[1]}. Using default: {NUM_POSITIONS_TO_GENERATE}")
 
-    stockfish_engine = initialize_stockfish_engine(STOCKFISH_PATH)
+    stockfish_engine = initialize_stockfish_engine(STOCKFISH_PATHS)
     if not stockfish_engine:
         return
 
