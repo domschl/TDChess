@@ -344,7 +344,7 @@ def main():
     parser.add_argument('--games', type=int, default=250, help='Number of self-play games per iteration')
     parser.add_argument('--lambda', dest='lambda_value', type=float, default=0.7, help='TD(λ) parameter')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for move selection')
-    parser.add_argument('--learning-rate', type=float, default=0.001, help='Learning rate for neural network training')
+    parser.add_argument('--learning-rate', type=float, default=0.0001, help='Learning rate for neural network training')
     parser.add_argument('--start-iter', type=int, default=1, help='Starting iteration (default: 1, will auto-detect latest if models exist)')
     parser.add_argument('--parallel', type=int, default=4, help='Number of parallel workers for game generation')
     parser.add_argument('--initial-positions', type=int, default=10000, help='Number of positions for initial dataset')

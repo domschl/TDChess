@@ -1,11 +1,12 @@
 from math import e
+import os
 import chess
 import chess.engine
 import json
 import subprocess
 import random
 import sys
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from pathlib import Path
 
@@ -19,14 +20,15 @@ MAX_MOVES_FOR_RANDOM_POSITIONS = 30 # Max ply for generating diverse positions
 
 # --- Helper Functions ---
 
-def initialize_stockfish_engine(engine_path: str) -> Optional[chess.engine.SimpleEngine]:
+def initialize_stockfish_engine(engine_paths: list[str]) -> chess.engine.SimpleEngine | None:
     """Initializes the Stockfish engine."""
-    for engine_path in STOCKFISH_PATHS:
-        try:
-            engine = chess.engine.SimpleEngine.popen_uci(engine_path)
-            return engine
-        except FileNotFoundError:
-            pass
+    for engine_path in engine_paths:
+        if os.path.exists(engine_path):
+            try:
+                engine = chess.engine.SimpleEngine.popen_uci(engine_path)
+                return engine
+            except FileNotFoundError:
+                pass
     print("Please update STOCKFISH_PATHS in the script.")
     return None
 
@@ -66,7 +68,7 @@ def get_stockfish_evaluation(engine: chess.engine.SimpleEngine, board: chess.Boa
         print(f"Error getting evaluation for FEN {board.fen()}: {e}")
         return None
 
-def convert_board_to_tensor(board: chess.Board) -> Optional[List[float]]:
+def convert_board_to_tensor(board: chess.Board) -> list[float] | None:
     """
     Converts a chess.Board object to the 14x8x8 tensor representation (flattened),
     matching the logic in neural.c's board_to_planes.
@@ -122,7 +124,7 @@ def convert_board_to_tensor(board: chess.Board) -> Optional[List[float]]:
     return tensor
 
 
-def generate_diverse_positions(num_positions: int, max_moves: int) -> List[chess.Board]:
+def generate_diverse_positions(num_positions: int, max_moves: int) -> list[chess.Board]:
     """Generates diverse chess positions by playing random legal moves."""
     positions = []
     for _ in range(num_positions):
@@ -162,7 +164,7 @@ def main():
         return
 
     # This list will store individual position data dictionaries
-    positions_data_list: List[Dict[str, Any]] = []
+    positions_data_list: list[dict[str, Any]] = []
 
     print(f"Generating {num_positions} diverse positions...")
     chess_positions = generate_diverse_positions(num_positions, MAX_MOVES_FOR_RANDOM_POSITIONS)
