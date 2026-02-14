@@ -118,7 +118,7 @@ def convert_board_to_tensor(board: chess.Board) -> list[float] | None:
         tensor[tensor_idx] = 1.0
     # Other squares in plane 13 remain 0.0 due to initialization.
 
-    # Final check, though it should always be correct if logic is sound
+    if len(tensor) != tensor_size:
         print(f"Error: Tensor has incorrect size {len(tensor)}. Expected {tensor_size} for FEN {board.fen()}.", flush=True)
         return None
         
