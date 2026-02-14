@@ -111,9 +111,9 @@ class ChessNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                # Careful initialization for the final layer
+                # More reasonable initialization for the final layer
                 if m.out_features == 1:  # Output layer
-                    nn.init.uniform_(m.weight, -0.01, 0.01)
+                    nn.init.uniform_(m.weight, -0.1, 0.1)
                 else:
                     nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
@@ -165,7 +165,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     criterion = nn.MSELoss()
     
     # Use Adam with lower learning rate
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate/10)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
     # Simpler learning rate scheduler 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(

@@ -182,8 +182,7 @@ float evaluate_pytorch(const Board *board) {
                 cpu_inputs.push_back(cpu_tensor);
 
                 torch::Tensor cpu_output = cpu_model.forward(cpu_inputs).toTensor();
-                // Apply tanh activation to match training (if it was also applied in main path before error)
-                cpu_output = cpu_output.tanh();
+                // Tanh is already included in the model's forward pass
                 float eval_value = cpu_output.item<float>();
 
                 // Convert normalized [-1,1] output back to centipawns

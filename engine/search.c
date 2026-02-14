@@ -145,7 +145,7 @@ void tt_store(uint64_t key, float score, int depth, int flag, Move best_move) {
 }
 
 // Probe transposition table
-bool tt_probe(uint64_t key, float *score, int depth, int alpha, int beta, Move *move) {
+bool tt_probe(uint64_t key, float *score, int depth, float alpha, float beta, Move *move) {
     if (transposition_table == NULL) {
         return false;
     }
@@ -457,8 +457,8 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
             // Convert score to centipawns with proper rounding
             int score_cp = (int)(score * 100.0f + (score >= 0 ? 0.5f : -0.5f));
 
-            printf("info depth %d score cp %d nodes %" PRIu64 " time %.0f pv ",
-                   depth, score_cp, *nodes, elapsed_ms);
+            printf("info depth %d score cp %d nodes %" PRIu64 " time %.0f raw %.4f pv ",
+                   depth, score_cp, *nodes, elapsed_ms, score);
 
             // Print PV
             Board temp_board = *board;
