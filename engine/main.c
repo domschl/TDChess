@@ -9,6 +9,7 @@
 #include "eval.h"
 #include "search.h"
 #include "neural.h"
+#include "zobrist.h"
 #include "python_binding.h"
 #include "td_learning.h"
 #include "visualization.h"
@@ -217,6 +218,10 @@ void play_against_computer(int depth) {
     printf("Enter moves in algebraic notation (e.g., e2e4)\n");
     printf("Enter 'quit' to exit\n\n");
 
+    uint64_t history[1024];
+    int history_count = 0;
+    history[history_count++] = compute_zobrist_key(&board);
+
     while (1) {
         print_board_pretty(&board);
         printf("\nEvaluation: %.2f\n", evaluate_basic(&board));
@@ -284,6 +289,7 @@ void play_against_computer(int depth) {
                         moves.moves[i].promotion = QUEEN;  // Default to queen promotion
                     }
                     make_move(&board, &(moves.moves[i]));
+                    history[history_count++] = compute_zobrist_key(&board);
                     move_found = true;
                     break;
                 }
@@ -299,6 +305,7 @@ void play_against_computer(int depth) {
             int search_depth = depth;     // Use the provided search depth
             Board current_board = board;  // Copy current board for search
             Move computer_move;
+            set_game_history(history, history_count);
             float score_pawn_units = find_best_move(&current_board, search_depth, &computer_move, &nodes, 1);
             printf("Computer move: %s (score: %.2f, nodes: %" PRIu64 ")\n",
                    move_to_string(computer_move), score_pawn_units, nodes);
@@ -307,6 +314,7 @@ void play_against_computer(int depth) {
             printf("DEBUG: Score after find_best_move: %.8f\n", score_pawn_units);
 
             make_move(&board, &computer_move);
+            history[history_count++] = compute_zobrist_key(&board);
         }
     }
 }

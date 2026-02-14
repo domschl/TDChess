@@ -59,4 +59,7 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
 // Check if side has non-pawn material (for null move pruning)
 bool has_non_pawn_material(const Board *board);
 
+// Set the game history (hashes of previous positions) for repetition detection
+void set_game_history(const uint64_t *hashes, int count);
+
 #endif  // SEARCH_H

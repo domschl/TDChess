@@ -48,9 +48,26 @@ static uint64_t tt_mask = 0;
 // Search configuration
 static SearchConfig search_config;
 
+// History for repetition detection
+static uint64_t history_stack[1024];
+static int history_count = 0;
+static uint64_t root_history_stack[1024];
+static int root_history_count = 0;
+
 // Time control variables
 static clock_t search_start_time;
 static bool search_time_up = false;
+
+// Internal repetition check
+static bool is_repetition(uint64_t key) {
+    // Check history from current half-move back to last irreversible move (pawn move or capture)
+    for (int i = 0; i < history_count - 1; i++) {
+        if (history_stack[i] == key) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // Forward declarations for internal functions
 static bool is_in_check(const Board *board, Color side);
@@ -366,6 +383,12 @@ float search_position(Board *board, int depth, Move *best_move, uint64_t *nodes_
     search_time_up = false;
     search_start_time = clock();
 
+    // Initialize history stack for this search
+    history_count = root_history_count;
+    for (int i = 0; i < history_count; i++) {
+        history_stack[i] = root_history_stack[i];
+    }
+
     // Use iterative deepening if enabled
     float score;
     if (search_config.use_iterative_deepening) {
@@ -428,13 +451,44 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
     // Start time measurement
     double start_ms = (double)clock() * 1000.0 / CLOCKS_PER_SEC;
 
+    // Aspiration window configuration
+    float alpha = -FLT_MAX;
+    float beta = FLT_MAX;
+    float window = 0.5f;  // 50 centipawns initial window
+
     // Iterative deepening loop
     for (int depth = 1; depth <= max_depth; depth++) {
-        float alpha = -FLT_MAX;
-        float beta = FLT_MAX;
+        // Aspiration windows: search with a narrow window around the previous score
+        if (depth >= 3) {
+            alpha = best_score - window;
+            beta = best_score + window;
+        }
 
-        // Search with current depth
-        float score = alpha_beta(board, depth, alpha, beta, nodes, 0, board_key, pv_line, &pv_length);
+        while (true) {
+            float score = alpha_beta(board, depth, alpha, beta, nodes, 0, board_key, pv_line, &pv_length);
+
+            if (search_time_up) break;
+
+            if (score <= alpha) {
+                // Fail low: score is worse than expected, expand alpha
+                alpha = -FLT_MAX;
+                if (verbosity > 1) printf("info string Aspiration fail low at depth %d (score %.4f)\n", depth, score);
+            } else if (score >= beta) {
+                // Fail high: score is better than expected, expand beta
+                beta = FLT_MAX;
+                if (verbosity > 1) printf("info string Aspiration fail high at depth %d (score %.4f)\n", depth, score);
+            } else {
+                // Within window
+                best_score = score;
+                break;
+            }
+
+            // If we've already expanded to full window, just break and use the latest score
+            if (alpha == -FLT_MAX && beta == FLT_MAX) {
+                best_score = score;
+                break;
+            }
+        }
 
         // If we're out of time, use the last completed depth
         if (search_time_up) {
@@ -445,7 +499,6 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
         }
 
         // Update best move and score only if the search completed
-        best_score = score;
         if (pv_length > 0) {
             *best_move = pv_line[0];
         }
@@ -455,10 +508,10 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
             double elapsed_ms = (double)clock() * 1000.0 / CLOCKS_PER_SEC - start_ms;
 
             // Convert score to centipawns with proper rounding
-            int score_cp = (int)(score * 100.0f + (score >= 0 ? 0.5f : -0.5f));
-
+            int score_cp = (int)(best_score * 100.0f + (best_score >= 0 ? 0.5f : -0.5f));
+ 
             printf("info depth %d score cp %d nodes %" PRIu64 " time %.0f raw %.4f pv ",
-                   depth, score_cp, *nodes, elapsed_ms, score);
+                   depth, score_cp, *nodes, elapsed_ms, best_score);
 
             // Print PV
             Board temp_board = *board;
@@ -489,13 +542,13 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     *pv_length = 0;
 
     // Check for draw by repetition or fifty-move rule
-    if (is_draw_by_repetition(board) || board->halfmove_clock >= 100) {
+    if (is_repetition(board_key) || board->halfmove_clock >= 100) {
         return 0.0f;  // Draw
     }
 
     // Check if we're out of time
     if (((*nodes) & 1023) == 0 && is_time_up()) {
-        return 0.0f;  // Return a neutral score when out of time
+        return 0.0f;
     }
 
     // Check transposition table
@@ -503,6 +556,25 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     float tt_score;
     if (tt_probe(board_key, &tt_score, depth, alpha, beta, &tt_move)) {
         return tt_score;
+    }
+
+    // --- Null Move Pruning ---
+    // If we're not in check, have high depth, and have non-pawn material, try a null move
+    if (search_config.use_null_move && depth >= 3 && !is_in_check(board, board->side_to_move) &&
+        ply > 0 && has_non_pawn_material(board)) {
+        
+        Board null_board = *board;
+        null_board.side_to_move = !null_board.side_to_move;
+        if (null_board.en_passant_square != -1) null_board.en_passant_square = -1;
+        
+        // Use reduced depth search (R=2 or 3)
+        int R = (depth > 6) ? 3 : 2;
+        float score = -alpha_beta(&null_board, depth - 1 - R, -beta, -beta + 0.01f, nodes, 
+                                  ply + 1, board_key ^ side_to_move_hash(), pv_line, pv_length);
+        
+        if (score >= beta) {
+            return beta;  // Null move cutoff
+        }
     }
 
     // Base case: leaf node or quiescence search
@@ -536,6 +608,9 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     // Child PV storage
     Move child_pv[MAX_PLY];
     int child_pv_length = 0;
+
+    // Push current position to history stack
+    history_stack[history_count++] = board_key;
 
     // Iterate through all legal moves
     for (int i = 0; i < moves.count; i++) {
@@ -611,6 +686,9 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
             }
         }
     }
+
+    // Pop from history stack
+    history_count--;
 
     // Store position in transposition table
     tt_store(board_key, best_score, depth, tt_flag, best_move);
@@ -856,4 +934,13 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes_s
     }
 
     return score;
+}
+
+void set_game_history(const uint64_t *hashes, int count) {
+    if (count < 0) count = 0;
+    if (count > 1024) count = 1024;
+    root_history_count = count;
+    for (int i = 0; i < root_history_count; i++) {
+        root_history_stack[i] = hashes[i];
+    }
 }
