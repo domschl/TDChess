@@ -168,7 +168,7 @@ def generate_diverse_positions(engine: chess.engine.SimpleEngine, num_positions:
             seen_fens.add(fen_key)
             positions.append(board.copy())
             
-        if len(positions) % 10 == 0 and len(positions) > 0:
+        if len(positions) % 100 == 0 and len(positions) > 0:
             print(f"  Found {len(positions)} unique positions... (Attempts: {attempts})", flush=True)
             
     return positions
@@ -201,7 +201,8 @@ def main():
         if generated_count >= num_positions:
             break
 
-        print(f"Processing position {i+1}/{len(chess_positions)} (Generated: {generated_count}) FEN: {board.fen()}", flush=True)
+        if i % 100 == 0:
+            print(f"Processing position {i+1}/{len(chess_positions)} (Generated: {generated_count}) FEN: {board.fen()}", flush=True)
 
         evaluation = get_stockfish_evaluation(stockfish_engine, board, STOCKFISH_THINK_TIME)
         if evaluation is None:
