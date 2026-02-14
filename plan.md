@@ -57,7 +57,8 @@ The current dataset generation script defaults to 5,000 positions. This is extre
 - [ ] **Visualization**: Create a script to render the "suicide" positions to understand what the model "sees" (e.g. print the top-k highest activated planes).
 
 ### Phase 3: Scaling
-- [ ] **Generate Larger Dataset**: Increase to at least 50,000 - 100,000 positions.
+- [x] **Generate Larger Dataset**: Implemented engine-assisted diversity and FEN deduplication.
+- [x] **Deduplication**: Added data leakage protection in `ChessDataset`.
 - [ ] **Retrain**: Retrain the model with the valid activation function and larger dataset.
 
 

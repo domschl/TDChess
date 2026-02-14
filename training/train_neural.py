@@ -25,11 +25,26 @@ class ChessDataset(Dataset):
         self.evaluations = []
         self.max_eval = max_eval
         
-        # Track clipped evaluations for reporting
+        # Track unique positions to avoid data leakage between train/val
+        seen_keys = set()
+        duplicate_count = 0
         clipped_count = 0
         total_count = len(data["positions"])
         
         for pos in data["positions"]:
+            # Deduplication key: prefer FEN if available, otherwise hash the tensor
+            if "fen" in pos["board"]:
+                # Use EPD (first 4 fields of FEN) to ignore irrelevant move clocks
+                key = " ".join(pos["board"]["fen"].split()[:4])
+            else:
+                # Fallback: create a tuple hash of the tensor
+                key = tuple(pos["board"]["tensor"])
+            
+            if key in seen_keys:
+                duplicate_count += 1
+                continue
+            seen_keys.add(key)
+            
             # Explicitly use float32 for tensor data
             self.positions.append(torch.tensor(pos["board"]["tensor"], dtype=torch.float32).reshape(14, 8, 8))
             
@@ -44,12 +59,13 @@ class ChessDataset(Dataset):
             normalized_eval = torch.tensor(clipped_eval / max_eval, dtype=torch.float32)
             self.evaluations.append(normalized_eval)
         
+        print(f"Loaded {len(self.positions)} unique positions ({duplicate_count} duplicates removed).")
         if clipped_count > 0:
             print(f"Notice: {clipped_count}/{total_count} positions ({100*clipped_count/total_count:.1f}%) had evaluations clipped to ±{max_eval}")
-    
+            
     def __len__(self):
         return len(self.positions)
-    
+        
     def __getitem__(self, idx):
         return self.positions[idx], self.evaluations[idx]
 

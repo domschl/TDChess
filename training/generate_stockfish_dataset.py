@@ -6,7 +6,7 @@ import json
 import subprocess
 import random
 import sys
-from typing import Any
+from typing import Any, Optional
 
 from pathlib import Path
 
@@ -124,26 +124,52 @@ def convert_board_to_tensor(board: chess.Board) -> list[float] | None:
     return tensor
 
 
-def generate_diverse_positions(num_positions: int, max_moves: int) -> list[chess.Board]:
-    """Generates diverse chess positions by playing random legal moves."""
+def generate_diverse_positions(engine: chess.engine.SimpleEngine, num_positions: int, max_moves: int) -> list[chess.Board]:
+    """Generates diverse chess positions by playing random legal moves followed by engine moves."""
     positions = []
-    for _ in range(num_positions):
+    seen_fens = set()
+    
+    print(f"Generating {num_positions} unique positions with engine assisted diversity...")
+    
+    attempts = 0
+    while len(positions) < num_positions and attempts < num_positions * 10:
+        attempts += 1
         board = chess.Board()
-        num_half_moves = random.randint(1, max_moves * 2) # Play up to max_moves full moves
         
-        for _ in range(num_half_moves):
+        # 1. Start with a few random moves (3-10) to diverge from the main line
+        # Too many random moves lead to pure noise; 3-10 is a good "opening" range
+        random_moves = random.randint(3, 10) 
+        for _ in range(random_moves):
             if board.is_game_over():
                 break
             legal_moves = list(board.legal_moves)
             if not legal_moves:
                 break
-            random_move = random.choice(legal_moves)
-            board.push(random_move)
+            move = random.choice(legal_moves)
+            board.push(move)
+            
+        # 2. Let the engine play a few moves (2-6) to reach a "reasonable" tactical state
+        # This makes the positions more "chess-like" for the model to learn
+        if not board.is_game_over():
+            engine_moves = random.randint(2, 6)
+            for _ in range(engine_moves):
+                if board.is_game_over():
+                    break
+                # Fast play to get to a position
+                result = engine.play(board, chess.engine.Limit(time=0.005))
+                if result.move:
+                    board.push(result.move)
         
-        # Optional: Add some opening positions from a small book or list
-        # Or, load positions from PGN files.
-        
-        positions.append(board.copy()) # Add a copy of the board state
+        # 3. Deduplicate by FEN (ignoring move clocks/counts for broader matching)
+        # We use the board part of the FEN to identify the piece configuration
+        fen_key = board.epd() 
+        if fen_key not in seen_fens:
+            seen_fens.add(fen_key)
+            positions.append(board.copy())
+            
+        if len(positions) % 100 == 0 and len(positions) > 0:
+            print(f"  Found {len(positions)} unique positions...")
+            
     return positions
 
 # --- Main Script Logic ---
@@ -167,7 +193,7 @@ def main():
     positions_data_list: list[dict[str, Any]] = []
 
     print(f"Generating {num_positions} diverse positions...")
-    chess_positions = generate_diverse_positions(num_positions, MAX_MOVES_FOR_RANDOM_POSITIONS)
+    chess_positions = generate_diverse_positions(stockfish_engine, num_positions, MAX_MOVES_FOR_RANDOM_POSITIONS)
     
     generated_count = 0
     for i, board in enumerate(chess_positions):
@@ -194,7 +220,8 @@ def main():
         # Structure each position entry as expected by ChessDataset
         position_entry = {
             "board": {
-                "tensor": board_tensor
+                "tensor": board_tensor,
+                "fen": board.fen()
             },
             "evaluation": evaluation
         }
