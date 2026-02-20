@@ -57,6 +57,8 @@ static int root_history_count = 0;
 // Time control variables
 static clock_t search_start_time;
 static bool search_time_up = false;
+static clock_t last_info_time = 0;
+static bool needs_newline = false;
 
 // Internal repetition check
 static bool is_repetition(uint64_t key) {
@@ -76,6 +78,7 @@ static float quiescence_search(Board *board, float alpha, float beta, uint64_t *
 static void sort_moves(MoveList *moves, int start_idx);
 static int get_piece_value(PieceType piece);
 static void score_capture(Move *move, const Board *board, int *score);
+static void report_search_progress(int depth, uint64_t nodes, float score, int move_num, int total_moves, Move move);
 
 // Check if time for search has elapsed
 static bool is_time_up(void) {
@@ -382,6 +385,8 @@ float search_position(Board *board, int depth, Move *best_move, uint64_t *nodes_
     *nodes_searched = 0;
     search_time_up = false;
     search_start_time = clock();
+    last_info_time = 0;
+    needs_newline = false;
 
     // Initialize history stack for this search
     history_count = root_history_count;
@@ -444,6 +449,9 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
         // No legal moves - checkmate or stalemate
         return is_in_check(board, board->side_to_move) ? -1000.0f : 0.0f;
     }
+    
+    // Safety score initialized correctly for alpha/beta
+    best_score = -FLT_MAX;
 
     // Calculate the board's Zobrist hash key
     uint64_t board_key = compute_zobrist_key(board);
@@ -459,9 +467,12 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
     // Iterative deepening loop
     for (int depth = 1; depth <= max_depth; depth++) {
         // Aspiration windows: search with a narrow window around the previous score
-        if (depth >= 3) {
+        if (depth >= 3 && best_score > -900.0f && best_score < 900.0f) {
             alpha = best_score - window;
             beta = best_score + window;
+        } else {
+            alpha = -FLT_MAX;
+            beta = FLT_MAX;
         }
 
         while (true) {
@@ -470,21 +481,23 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
             if (search_time_up) break;
 
             if (score <= alpha) {
+                if (alpha == -FLT_MAX) { // Already at min, accept it
+                    best_score = score;
+                    break;
+                }
                 // Fail low: score is worse than expected, expand alpha
                 alpha = -FLT_MAX;
                 if (verbosity > 1) printf("info string Aspiration fail low at depth %d (score %.4f)\n", depth, score);
             } else if (score >= beta) {
+                if (beta == FLT_MAX) { // Already at max, accept it
+                    best_score = score;
+                    break;
+                }
                 // Fail high: score is better than expected, expand beta
                 beta = FLT_MAX;
                 if (verbosity > 1) printf("info string Aspiration fail high at depth %d (score %.4f)\n", depth, score);
             } else {
                 // Within window
-                best_score = score;
-                break;
-            }
-
-            // If we've already expanded to full window, just break and use the latest score
-            if (alpha == -FLT_MAX && beta == FLT_MAX) {
                 best_score = score;
                 break;
             }
@@ -505,6 +518,10 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
 
         // Print current iteration info
         if (verbosity > 0) {
+            if (needs_newline) {
+                printf("\n");
+                needs_newline = false;
+            }
             double elapsed_ms = (double)clock() * 1000.0 / CLOCKS_PER_SEC - start_ms;
 
             // Convert score to centipawns with proper rounding
@@ -632,6 +649,10 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
         sort_moves(&moves, i);
         Move current_move = moves.moves[i];
         move_count++;
+
+        if (ply == 0 && search_config.verbosity > 0) {
+            report_search_progress(depth, *nodes, (best_score == -FLT_MAX) ? 0 : best_score, move_count, moves.count, current_move);
+        }
 
         // Make the move on a copy of the board
         Board next_board = *board;
@@ -978,5 +999,23 @@ void set_game_history(const uint64_t *hashes, int count) {
     root_history_count = count;
     for (int i = 0; i < root_history_count; i++) {
         root_history_stack[i] = hashes[i];
+    }
+}
+
+static void report_search_progress(int depth, uint64_t nodes, float score, int move_num, int total_moves, Move move) {
+    clock_t current = clock();
+    double elapsed_ms = (double)(current - search_start_time) * 1000.0 / CLOCKS_PER_SEC;
+
+    if (elapsed_ms >= (double)last_info_time + 1000.0 || last_info_time == 0) {
+        last_info_time = (clock_t)elapsed_ms;
+
+        int score_cp = (int)(score * 100.0f + (score >= 0 ? 0.5f : -0.5f));
+        char *move_str = move_to_string(move);
+
+        // \r to return to start, \033[K to clear till end of line
+        printf("\r\033[Kinfo depth %d score cp %d nodes %" PRIu64 " time %.0f currmove %s currmovenumber %d",
+               depth, score_cp, nodes, elapsed_ms, move_str, move_num);
+        fflush(stdout);
+        needs_newline = true;
     }
 }
