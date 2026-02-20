@@ -541,6 +541,11 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     // Initialize PV length
     *pv_length = 0;
 
+    // Safety check for depth/ply
+    if (ply >= MAX_PLY - 1) {
+        return evaluate_position(board);
+    }
+
     // Check for draw by repetition or fifty-move rule
     if (is_repetition(board_key) || board->halfmove_clock >= 100) {
         return 0.0f;  // Draw
@@ -557,10 +562,12 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     }
 
     bool in_check = is_in_check(board, board->side_to_move);
+    int extension = 0;
 
     // Check extension: search deeper if in check
-    if (in_check && ply < MAX_PLY - 1) {
-        depth++;
+    // Ensure we don't extend indefinitely (only extend if we haven't reached depth limit)
+    if (in_check) {
+        extension = 1;
     }
 
     // Check transposition table
@@ -638,8 +645,8 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
         // Principal Variation Search (PVS)
         if (move_count == 1) {
             // Full-window search for first move
-            score = -alpha_beta(&next_board, depth - 1, -beta, -alpha, nodes,
-                                ply + 1, new_key, child_pv, &child_pv_length);
+            score = -alpha_beta(&next_board, depth - 1 + extension, -beta, -alpha, nodes,
+                                 ply + 1, new_key, child_pv, &child_pv_length);
         } else {
             // Reduced depth for later moves (late move reduction)
             int reduction = 0;
@@ -649,19 +656,19 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
             }
 
             // Null-window search with reduced depth
-            score = -alpha_beta(&next_board, depth - 1 - reduction, -alpha - 0.01f, -alpha,
-                                nodes, ply + 1, new_key, child_pv, &child_pv_length);
+            score = -alpha_beta(&next_board, depth - 1 + extension - reduction, -alpha - 0.01f, -alpha,
+                                 nodes, ply + 1, new_key, child_pv, &child_pv_length);
 
             // Re-search with full window if score might be better than alpha
             if (score > alpha && (reduction > 0 || score < beta)) {
                 // If reduced, retry with full depth and proper bounds
                 if (reduction > 0) {
-                    score = -alpha_beta(&next_board, depth - 1, -beta, -alpha,
-                                        nodes, ply + 1, new_key, child_pv, &child_pv_length);
+                    score = -alpha_beta(&next_board, depth - 1 + extension, -beta, -alpha,
+                                         nodes, ply + 1, new_key, child_pv, &child_pv_length);
                 } else if (score < beta) {
                     // If within bounds but not reduced, do a full window search
-                    score = -alpha_beta(&next_board, depth - 1, -beta, -alpha,
-                                        nodes, ply + 1, new_key, child_pv, &child_pv_length);
+                    score = -alpha_beta(&next_board, depth - 1 + extension, -beta, -alpha,
+                                         nodes, ply + 1, new_key, child_pv, &child_pv_length);
                 }
             }
         }
@@ -734,10 +741,16 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
     }
 
     (*nodes)++;
+    
+    // Check if we're out of time occasionally
+    if (((*nodes) & 1023) == 0 && is_time_up()) {
+        return 0.0f;
+    }
 
     // Generate moves: if in check, we must generate all legal escapes
     MoveList moves;
-    if (in_check) {
+    // Limit check escapes in Q-search to prevent explosion
+    if (in_check && qdepth < 2) {
         generate_legal_moves(board, &moves);
         // If in check and no legal moves exist, it's checkmate
         if (moves.count == 0) {
