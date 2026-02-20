@@ -174,81 +174,93 @@ def generate_diverse_positions(engine: chess.engine.SimpleEngine, num_positions:
     return positions
 
 # --- Main Script Logic ---
-def main():
-    print("Starting dataset generation with Stockfish...", flush=True)
+import concurrent.futures
+import tempfile
+from functools import partial
 
-    # Allow overriding number of positions via positional argument
+# --- Optimized Functions for Parallelism ---
+
+def worker_generate_and_eval(num_to_gen: int, worker_id: int):
+    """Worker process that generates and evaluates a chunk of positions."""
+    engine = initialize_stockfish_engine(STOCKFISH_PATHS)
+    if not engine:
+        return []
+    
+    results = []
+    seen_fens = set()
+    
+    # Generate local chunk
+    boards = generate_diverse_positions(engine, num_to_gen, MAX_MOVES_FOR_RANDOM_POSITIONS)
+    
+    for board in boards:
+        eval_cp = get_stockfish_evaluation(engine, board, STOCKFISH_THINK_TIME)
+        if eval_cp is not None:
+            tensor = convert_board_to_tensor(board)
+            if tensor:
+                results.append({
+                    "board": {"tensor": tensor, "fen": board.fen()},
+                    "evaluation": eval_cp
+                })
+    
+    engine.quit()
+    return results
+
+def main():
+    print("Starting optimized dataset generation with Stockfish...", flush=True)
+
     num_positions = NUM_POSITIONS_TO_GENERATE
     if len(sys.argv) > 1:
         try:
             num_positions = int(sys.argv[1])
             print(f"Overriding number of positions to generate: {num_positions}", flush=True)
         except ValueError:
-            print(f"Invalid argument for number of positions: {sys.argv[1]}. Using default: {NUM_POSITIONS_TO_GENERATE}", flush=True)
+            print(f"Invalid argument: {sys.argv[1]}. Using default: {NUM_POSITIONS_TO_GENERATE}", flush=True)
 
-    stockfish_engine = initialize_stockfish_engine(STOCKFISH_PATHS)
-    if not stockfish_engine:
-        return
-
-    # This list will store individual position data dictionaries
-    positions_data_list: list[dict[str, Any]] = []
-
-    print(f"Generating {num_positions} diverse positions...", flush=True)
-    chess_positions = generate_diverse_positions(stockfish_engine, num_positions, MAX_MOVES_FOR_RANDOM_POSITIONS)
+    # Determine parallelism
+    num_cpus = os.cpu_count() or 4
+    num_workers = max(1, num_cpus - 1)
+    chunk_size = num_positions // num_workers
+    remainder = num_positions % num_workers
     
-    generated_count = 0
-    for i, board in enumerate(chess_positions):
-        if generated_count >= num_positions:
-            break
+    print(f"Using {num_workers} worker processes. Target positions: {num_positions}", flush=True)
 
-        if i % 100 == 0:
-            print(f"Processing position {i+1}/{len(chess_positions)} (Generated: {generated_count}) FEN: {board.fen()}", flush=True)
-
-        evaluation = get_stockfish_evaluation(stockfish_engine, board, STOCKFISH_THINK_TIME)
-        if evaluation is None:
-            print(f"Skipping position due to evaluation error: {board.fen()}", flush=True)
-            continue
-
-        board_tensor = convert_board_to_tensor(board)
-        if board_tensor is None:
-            print(f"Skipping position due to tensor conversion error: {board.fen()}", flush=True)
-            continue
+    all_positions = []
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = []
+        for i in range(num_workers):
+            count = chunk_size + (remainder if i == 0 else 0)
+            if count > 0:
+                futures.append(executor.submit(worker_generate_and_eval, count, i))
         
-        if len(board_tensor) != 896:
-            print(f"Error: Tensor for FEN {board.fen()} has incorrect size {len(board_tensor)}. Expected 896.", flush=True)
-            print("Please check your `convert_board_to_tensor` implementation.", flush=True)
-            continue
+        done_count = 0
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                batch = future.result()
+                all_positions.extend(batch) # Still using extend here, but only on chunks
+                done_count += len(batch)
+                print(f"  Worker finished. Total collected: {done_count}/{num_positions}", flush=True)
+            except Exception as e:
+                print(f"  Worker failed: {e}", flush=True)
 
-        # Structure each position entry as expected by ChessDataset
-        position_entry = {
-            "board": {
-                "tensor": board_tensor,
-                "fen": board.fen()
-            },
-            "evaluation": evaluation
-        }
-        positions_data_list.append(position_entry)
-        generated_count +=1
+    print(f"Collected total of {len(all_positions)} unique positions.", flush=True)
 
-        if (i + 1) % 100 == 0:
-            print(f"Generated {generated_count} positions so far...", flush=True)
-
-    stockfish_engine.quit()
-    print(f"Generated a total of {len(positions_data_list)} positions.", flush=True)
-
-    if not positions_data_list:
+    if not all_positions:
         print("No data was generated. Exiting.", flush=True)
         return
 
-    # Create the final dataset structure with the "positions" key
-    final_dataset_to_save = {"positions": positions_data_list}
-
-    print(f"Saving dataset to {OUTPUT_DATASET_PATH}...", flush=True)
+    # Save compact JSON (Streaming to avoid huge string allocation if possible)
+    print(f"Saving optimized dataset to {OUTPUT_DATASET_PATH}...", flush=True)
     try:
         OUTPUT_DATASET_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(OUTPUT_DATASET_PATH, 'w') as f:
-            json.dump(final_dataset_to_save, f, indent=2) # Save the new structure
-        print("Dataset saved successfully.", flush=True)
+            f.write('{"positions": [')
+            for i, pos in enumerate(all_positions):
+                json.dump(pos, f)
+                if i < len(all_positions) - 1:
+                    f.write(',')
+            f.write(']}')
+        print("Dataset saved successfully (compact format).", flush=True)
     except IOError as e:
         print(f"Error saving dataset: {e}")
         return
