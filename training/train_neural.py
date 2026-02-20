@@ -93,7 +93,7 @@ class ResidualBlock(nn.Module):
 class ChessNet(nn.Module):
     """Neural network for chess position evaluation with fixes for vanishing gradients"""
     
-    def __init__(self, dropout=0.3):
+    def __init__(self, dropout=0.0):
         super(ChessNet, self).__init__()
         
         # Input: 14 channels (6 piece types * 2 colors + side to move + en passant)
@@ -102,14 +102,17 @@ class ChessNet(nn.Module):
         
         # Three residual blocks
         self.residual_blocks = nn.ModuleList([
-            ResidualBlock(64) for _ in range(3)
+            ResidualBlock(64) for _ in range(1)
         ])
         
         # Value head with smaller layers to prevent overfitting
         self.value_conv = nn.Conv2d(64, 32, kernel_size=1)
         self.value_bn = nn.BatchNorm2d(32)
         self.value_fc1 = nn.Linear(32 * 8 * 8, 64)
-        self.dropout = nn.Dropout(dropout)
+        if dropout > 0:
+            self.dropout = nn.Dropout(dropout)
+        else:
+            self.dropout = None
         self.value_fc2 = nn.Linear(64, 1)
         
         # Important: Use LeakyReLU to prevent dead neurons
@@ -147,7 +150,9 @@ class ChessNet(nn.Module):
         value = self.relu(self.value_bn(self.value_conv(x)))
         value = value.view(-1, 32 * 8 * 8)
         value = self.relu(self.value_fc1(value))
-        value = self.dropout(value)
+        
+        if self.dropout:
+            value = self.dropout(value)
         
         # Apply tanh to squash the output to [-1, 1] range
         value = torch.tanh(self.value_fc2(value))
@@ -177,13 +182,13 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     print(f"Validation set: {len(val_dataset)} positions")
     
     # Create model with dropout
-    model = ChessNet(dropout=0.3)
+    model = ChessNet(dropout=0.0)
     
     # Use MSE loss but apply tanh to model output to match expected range
     criterion = nn.MSELoss()
     
     # Use Adam with weight decay to prevent overfitting
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate) # , weight_decay=1e-4)
     
     # Simpler learning rate scheduler 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
