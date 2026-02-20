@@ -86,7 +86,7 @@ class TDChessTraining:
             train_model(
                 str(self.initial_dataset),
                 str(self.initial_model),
-                epochs=250,
+                epochs=1024,
                 batch_size=128,
                 learning_rate=self.learning_rate
             )
