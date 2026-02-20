@@ -551,6 +551,13 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
         return 0.0f;
     }
 
+    bool in_check = is_in_check(board, board->side_to_move);
+
+    // Check extension: search deeper if in check
+    if (in_check && ply < MAX_PLY - 1) {
+        depth++;
+    }
+
     // Check transposition table
     Move tt_move = {0};
     float tt_score;
@@ -703,37 +710,52 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
         return evaluate_position(board);
     }
 
-    // Check for draw by repetition or fifty-move rule
-    if (is_draw_by_repetition(board) || board->halfmove_clock >= 100) {
+    // Check for draw by fifty-move rule
+    if (board->halfmove_clock >= 100) {
         return 0.0f;  // Draw
+    }
+
+    bool in_check = is_in_check(board, board->side_to_move);
+
+    // Stand pat score - not allowed if in check
+    if (!in_check) {
+        float stand_pat = evaluate_position(board);
+
+        // Beta cutoff
+        if (stand_pat >= beta) {
+            return beta;
+        }
+
+        // Update alpha if improvement
+        if (stand_pat > alpha) {
+            alpha = stand_pat;
+        }
     }
 
     (*nodes)++;
 
-    // Stand pat score - evaluate_position now returns score relative to side to move
-    float stand_pat = evaluate_position(board);
-
-    // Beta cutoff
-    if (stand_pat >= beta) {
-        return beta;
-    }
-
-    // Update alpha if improvement
-    if (stand_pat > alpha) {
-        alpha = stand_pat;
-    }
-
-    // Generate and score only captures
+    // Generate moves: if in check, we must generate all legal escapes
     MoveList moves;
-    generate_captures(board, &moves);
-
-    // Score captures for better ordering
-    for (int i = 0; i < moves.count; i++) {
-        // Score moves by MVV-LVA
-        score_capture(&moves.moves[i], board, &moves.scores[i]);
+    if (in_check) {
+        generate_legal_moves(board, &moves);
+        // If in check and no legal moves exist, it's checkmate
+        if (moves.count == 0) {
+            return -1000.0f + current_ply;
+        }
+    } else {
+        generate_captures(board, &moves);
     }
 
-    // Process each capture in order
+    // Score moves for better ordering
+    if (in_check) {
+        score_moves(board, &moves, (Move){0}, current_ply);
+    } else {
+        for (int i = 0; i < moves.count; i++) {
+            score_capture(&moves.moves[i], board, &moves.scores[i]);
+        }
+    }
+
+    // Process each move in order
     for (int i = 0; i < moves.count; i++) {
         // Sort remaining moves
         sort_moves(&moves, i);
@@ -743,8 +765,8 @@ float quiescence_search(Board *board, float alpha, float beta, uint64_t *nodes, 
         Board next_board = *board;
         make_move(&next_board, &current_move);
 
-        // Skip if we're in check after the move
-        if (is_in_check(&next_board, next_board.side_to_move)) {
+        // Legality check for pseudo-legal captures
+        if (!in_check && is_in_check(&next_board, board->side_to_move)) {
             continue;
         }
 
