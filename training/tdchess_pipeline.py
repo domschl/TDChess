@@ -407,7 +407,7 @@ def main():
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=0.0001,
+        default=0.00005,
         help="Learning rate for neural network training",
     )
     parser.add_argument(

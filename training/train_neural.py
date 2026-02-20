@@ -160,7 +160,7 @@ class ChessNet(nn.Module):
         return value
 
 
-def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1, max_eval=2000.0, initial_model_path=None):
+def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.0001, val_split=0.1, max_eval=2000.0, initial_model_path=None):
     """Train the neural network with better handling of wide evaluation range"""
     
     # Load dataset with normalization
