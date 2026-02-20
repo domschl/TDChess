@@ -425,7 +425,7 @@ def main():
     parser.add_argument(
         "--initial-positions",
         type=int,
-        default=10000,
+        default=100000,
         help="Number of positions for initial dataset",
     )
     parser.add_argument(
