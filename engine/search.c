@@ -551,6 +551,11 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
         return 0.0f;
     }
 
+    // Base case: leaf node or quiescence search
+    if (depth <= 0) {
+        return quiescence_search(board, alpha, beta, nodes, 0, ply);
+    }
+
     bool in_check = is_in_check(board, board->side_to_move);
 
     // Check extension: search deeper if in check
@@ -584,10 +589,6 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
         }
     }
 
-    // Base case: leaf node or quiescence search
-    if (depth <= 0) {
-        return quiescence_search(board, alpha, beta, nodes, 0, ply);
-    }
 
     (*nodes)++;
 
