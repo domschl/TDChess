@@ -220,7 +220,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     train_losses = []
     val_losses = []
     best_val_loss = float('inf')
-    patience = 20
+    patience = 50
     patience_counter = 0
     best_model_path = Path(output_model).with_suffix('.best.pt')
     
