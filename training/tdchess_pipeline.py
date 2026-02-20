@@ -248,16 +248,17 @@ class TDChessTraining:
                     lambda_power *= self.lambda_value
                 
                 # Add final game result with remaining lambda weight
-                # Game result is already from white's perspective
-                td_target += lambda_power * game_result * 100.0  # Scale game result
+                # Game result is already from white's perspective (1.0, 0.0, -1.0)
+                # Scale it to match the centipawn evaluation range (e.g. 2000.0 = 20 pawns)
+                td_target += lambda_power * game_result * 2000.0  # Increased from 100.0
                 normalization += lambda_power
                 
                 # Normalize the target
                 if normalization > 0:
                     td_target /= normalization
                 
-                # Clip target to reasonable range
-                td_target = np.clip(td_target, -100.0, 100.0)
+                # Clip target to reasonable range (matching MAX_EVAL in engine)
+                td_target = np.clip(td_target, -2000.0, 2000.0)
                 
                 # Add position and target to dataset
                 positions.append(position['board'])
@@ -330,12 +331,14 @@ class TDChessTraining:
             self.apply_td_lambda(games_path, td_dataset_path)
             
             # Step 3: Train new model using the TD(λ) dataset
+            # We pass current_model as initial_model to preserve weights (fine-tuning)
             train_model(
                 str(td_dataset_path),
                 str(output_model),
                 100,
                 batch_size=128,
-                learning_rate=self.learning_rate
+                learning_rate=self.learning_rate,
+                initial_model_path=str(current_model)
             )
             
             # Update current model for next iteration

@@ -160,7 +160,7 @@ class ChessNet(nn.Module):
         return value
 
 
-def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1, max_eval=2000.0):
+def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_rate=0.001, val_split=0.1, max_eval=2000.0, initial_model_path=None):
     """Train the neural network with better handling of wide evaluation range"""
     
     # Load dataset with normalization
@@ -183,6 +183,19 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     
     # Create model with dropout
     model = ChessNet(dropout=0.0)
+    
+    # Load initial model weights if provided
+    if initial_model_path and Path(initial_model_path).exists():
+        print(f"Loading initial model weights from {initial_model_path}...")
+        try:
+            checkpoint = torch.load(initial_model_path, map_location='cpu')
+            if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+                model.load_state_dict(checkpoint["state_dict"])
+            else:
+                # Fallback for models saved without the state_dict wrapper
+                model.load_state_dict(checkpoint)
+        except Exception as e:
+            print(f"Warning: Could not load initial model weights: {e}")
     
     # Use MSE loss but apply tanh to model output to match expected range
     criterion = nn.MSELoss()
