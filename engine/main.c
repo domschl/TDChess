@@ -224,7 +224,9 @@ void play_against_computer(int depth) {
 
     while (1) {
         print_board_pretty(&board);
-        printf("\nEvaluation: %.2f\n", evaluate_basic(&board));
+        printf("\nEvaluation: ");
+        print_evaluation(evaluate_basic(&board));
+        printf("\n");
 
         // Generate legal moves
         MoveList moves;
@@ -307,8 +309,9 @@ void play_against_computer(int depth) {
             Move computer_move;
             set_game_history(history, history_count);
             float score_pawn_units = find_best_move(&current_board, search_depth, &computer_move, &nodes, 1);
-            printf("Computer move: %s (score: %.2f, nodes: %" PRIu64 ")\n",
-                   move_to_string(computer_move), score_pawn_units, nodes);
+            printf("Computer move: %s (score: ", move_to_string(computer_move));
+            print_evaluation(score_pawn_units);
+            printf(", nodes: %" PRIu64 ")\n", nodes);
 
             // Add debug print to track the score
             printf("DEBUG: Score after find_best_move: %.8f\n", score_pawn_units);

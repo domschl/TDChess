@@ -181,13 +181,17 @@ void print_game_debug(const Board *positions, int num_positions, int interval) {
 
         // Also show evaluation
         float eval = evaluate_position(&positions[i]);
-        printf("Classical evaluation: %.2f\n", eval);
+        printf("Classical evaluation: ");
+        print_evaluation(eval);
+        printf("\n");
 
 #if HAVE_ONNXRUNTIME
         // If we have a loaded neural model, show that evaluation too
         if (is_neural_initialized()) {
             float neural_eval = evaluate_neural(&positions[i]);
-            printf("Neural evaluation: %.2f\n", neural_eval);
+            printf("Neural evaluation: ");
+            print_evaluation(neural_eval);
+            printf("\n");
         }
 #endif
     }
@@ -222,7 +226,9 @@ void print_game_with_evals(const Board *positions, float *evaluations, int num_p
 
     // Print initial position
     print_board_pretty(&positions[0]);
-    printf("Initial evaluation: %.2f\n\n", evaluations[0]);
+    printf("Initial evaluation: ");
+    print_evaluation(evaluations[0]);
+    printf("\n\n");
 
     // Simple output format - show all positions and evaluations
     for (int i = 1; i < num_positions; i++) {
@@ -250,15 +256,19 @@ void print_game_with_evals(const Board *positions, float *evaluations, int num_p
             if (boards_equal(&test_board, &positions[i])) {
                 // Move found! Print it in algebraic notation
                 char move_buffer[16];
+                char eval_buffer[32];
                 move_to_algebraic(&positions[i - 1], &moves.moves[m], move_buffer, sizeof(move_buffer));
-                printf("%s (Eval: %.2f)\n", move_buffer, evaluations[i]);
+                format_evaluation(evaluations[i], eval_buffer, sizeof(eval_buffer));
+                printf("%s (Eval: %s)\n", move_buffer, eval_buffer);
                 found_move = true;
                 break;
             }
         }
 
         if (!found_move) {
-            printf("[Move not detected] (Eval: %.2f)\n", evaluations[i]);
+            char eval_buffer[32];
+            format_evaluation(evaluations[i], eval_buffer, sizeof(eval_buffer));
+            printf("[Move not detected] (Eval: %s)\n", eval_buffer);
         }
 
         // Print board every 5 moves
@@ -271,7 +281,9 @@ void print_game_with_evals(const Board *positions, float *evaluations, int num_p
     // Final position
     printf("\nFinal position:\n");
     print_board_pretty(&positions[num_positions - 1]);
-    printf("Final evaluation: %.2f\n", evaluations[num_positions - 1]);
+    printf("Final evaluation: ");
+    print_evaluation(evaluations[num_positions - 1]);
+    printf("\n");
 }
 
 // Add a simpler alternative function that just shows positions without move detection
@@ -281,7 +293,9 @@ void print_positions_with_evals(const Board *positions, float *evaluations, int 
     for (int i = 0; i < num_positions; i++) {
         printf("\nPosition %d (Fullmove: %d):\n", i, positions[i].fullmove_number);
         print_board_pretty(&positions[i]);
-        printf("Evaluation: %.2f\n", evaluations[i]);
+        printf("Evaluation: ");
+        print_evaluation(evaluations[i]);
+        printf("\n");
 
         if (i > 0) {
             // Show what changed from previous position
@@ -377,7 +391,9 @@ void print_game_with_recorded_moves(const GamePosition *game_positions, int num_
 
     // Print initial position
     print_board_pretty(&game_positions[0].board);
-    printf("Initial evaluation: %.2f\n\n", game_positions[0].evaluation);
+    printf("Initial evaluation: ");
+    print_evaluation(game_positions[0].evaluation);
+    printf("\n\n");
 
     // Track current line length for formatting
     int line_length = 0;
@@ -398,11 +414,13 @@ void print_game_with_recorded_moves(const GamePosition *game_positions, int num_
         // Add White's move if available
         if (white_pos < num_positions && game_positions[white_pos].has_move) {
             char white_move[16];
+            char eval_buf[32];
             move_to_algebraic(&game_positions[white_pos - 1].board,
                               &game_positions[white_pos].last_move,
                               white_move, sizeof(white_move));
-            chars += sprintf(move_str + chars, "%s (%.2f) ",
-                             white_move, game_positions[white_pos].evaluation);
+            format_evaluation(game_positions[white_pos].evaluation, eval_buf, sizeof(eval_buf));
+            chars += sprintf(move_str + chars, "%s (%s) ",
+                             white_move, eval_buf);
         } else {
             chars += sprintf(move_str + chars, "... ");
         }
@@ -410,11 +428,13 @@ void print_game_with_recorded_moves(const GamePosition *game_positions, int num_
         // Add Black's move if available
         if (black_pos < num_positions && game_positions[black_pos].has_move) {
             char black_move[16];
+            char eval_buf[32];
             move_to_algebraic(&game_positions[black_pos - 1].board,
                               &game_positions[black_pos].last_move,
                               black_move, sizeof(black_move));
-            chars += sprintf(move_str + chars, "%s (%.2f)  ",
-                             black_move, game_positions[black_pos].evaluation);
+            format_evaluation(game_positions[black_pos].evaluation, eval_buf, sizeof(eval_buf));
+            chars += sprintf(move_str + chars, "%s (%s)  ",
+                             black_move, eval_buf);
         }
 
         // Check if we need to start a new line
@@ -436,8 +456,26 @@ void print_game_with_recorded_moves(const GamePosition *game_positions, int num_
         }
     }
 
-    // Final position
     printf("\n\nFinal position:\n");
     print_board_pretty(&game_positions[num_positions - 1].board);
-    printf("Final evaluation: %.2f\n", game_positions[num_positions - 1].evaluation);
+    printf("Final evaluation: ");
+    print_evaluation(game_positions[num_positions - 1].evaluation);
+    printf("\n");
+}
+
+char* format_evaluation(float score, char* buffer, size_t size) {
+    if (score > 800.0f) {
+        snprintf(buffer, size, "+∞");
+    } else if (score < -800.0f) {
+        snprintf(buffer, size, "-∞");
+    } else {
+        snprintf(buffer, size, "%.2f", score);
+    }
+    return buffer;
+}
+
+void print_evaluation(float score) {
+    char buffer[32];
+    format_evaluation(score, buffer, sizeof(buffer));
+    printf("%s", buffer);
 }

@@ -30,4 +30,10 @@ bool is_neural_initialized(void);
 // New function to print games with recorded moves
 void print_game_with_recorded_moves(const GamePosition *game_positions, int num_positions);
 
+// Print an evaluation score with infinity symbol for mates
+void print_evaluation(float score);
+
+// Format an evaluation score into a string
+char* format_evaluation(float score, char* buffer, size_t size);
+
 #endif  // VISUALIZATION_H

@@ -3,6 +3,7 @@
 #include "eval.h"
 #include "board.h"
 #include "zobrist.h"
+#include "visualization.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -524,11 +525,24 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
             }
             double elapsed_ms = (double)clock() * 1000.0 / CLOCKS_PER_SEC - start_ms;
 
-            // Convert score to centipawns with proper rounding
-            int score_cp = (int)(best_score * 100.0f + (best_score >= 0 ? 0.5f : -0.5f));
- 
-            printf("info depth %d score cp %d nodes %" PRIu64 " time %.0f raw %.4f pv ",
-                   depth, score_cp, *nodes, elapsed_ms, best_score);
+            // Convert score to UCI format (cp or mate)
+            if (best_score > 800.0f) {
+                int mate_moves = (int)(1001.0f - best_score) / 2;
+                printf("info depth %d score mate %d", depth, mate_moves);
+            } else if (best_score < -800.0f) {
+                int mate_moves = (int)(-1001.0f - best_score) / 2;
+                printf("info depth %d score mate %d", depth, mate_moves);
+            } else if (best_score == FLT_MAX) {
+                printf("info depth %d score cp 0 info string +Inf", depth);
+            } else if (best_score == -FLT_MAX) {
+                printf("info depth %d score cp 0 info string -Inf", depth);
+            } else {
+                int score_cp = (int)(best_score * 100.0f + (best_score >= 0 ? 0.5f : -0.5f));
+                printf("info depth %d score cp %d", depth, score_cp);
+            }
+
+            printf(" nodes %" PRIu64 " time %.0f raw %.4f pv ",
+                   *nodes, elapsed_ms, best_score);
 
             // Print PV
             Board temp_board = *board;
@@ -976,8 +990,9 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes_s
     float score = search_position(board, depth, best_move, nodes_searched);
 
     if (verbosity > 1) {
-        printf("info string Raw score: %.4f, CP score: %d\n",
-               score, (int)(score * 100.0f));
+        char score_buf[32];
+        format_evaluation(score, score_buf, sizeof(score_buf));
+        printf("info string Raw score: %.4f, Formatted: %s\n", score, score_buf);
     }
 
     // Restore original verbosity
@@ -986,8 +1001,10 @@ float find_best_move(Board *board, int depth, Move *best_move, uint64_t *nodes_s
     // Debug printout to verify score
     if (verbosity > 0) {
         char move_str[10];
+        char score_buf[32];
         strcpy(move_str, move_to_string(*best_move));
-        printf("info string Best move: %s, Score: %.2f\n", move_str, score);
+        format_evaluation(score, score_buf, sizeof(score_buf));
+        printf("info string Best move: %s, Score: %s\n", move_str, score_buf);
     }
 
     return score;
@@ -1009,12 +1026,28 @@ static void report_search_progress(int depth, uint64_t nodes, float score, int m
     if (elapsed_ms >= (double)last_info_time + 1000.0 || last_info_time == 0) {
         last_info_time = (clock_t)elapsed_ms;
 
-        int score_cp = (int)(score * 100.0f + (score >= 0 ? 0.5f : -0.5f));
         char *move_str = move_to_string(move);
 
         // \r to return to start, \033[K to clear till end of line
-        printf("\r\033[Kinfo depth %d score cp %d nodes %" PRIu64 " time %.0f currmove %s currmovenumber %d",
-               depth, score_cp, nodes, elapsed_ms, move_str, move_num);
+        printf("\r\033[Kinfo depth %d ", depth);
+        
+        if (score > 800.0f) {
+            int mate_moves = (int)(1001.0f - score) / 2;
+            printf("score mate %d", mate_moves);
+        } else if (score < -800.0f) {
+            int mate_moves = (int)(-1001.0f - score) / 2;
+            printf("score mate %d", mate_moves);
+        } else if (score == FLT_MAX) {
+            printf("score cp 0 info string +Inf");
+        } else if (score == -FLT_MAX) {
+            printf("score cp 0 info string -Inf");
+        } else {
+            int score_cp = (int)(score * 100.0f + (score >= 0 ? 0.5f : -0.5f));
+            printf("score cp %d", score_cp);
+        }
+
+        printf(" nodes %" PRIu64 " time %.0f currmove %s currmovenumber %d",
+               nodes, elapsed_ms, move_str, move_num);
         fflush(stdout);
         needs_newline = true;
     }
