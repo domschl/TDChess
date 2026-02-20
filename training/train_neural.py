@@ -93,7 +93,7 @@ class ResidualBlock(nn.Module):
 class ChessNet(nn.Module):
     """Neural network for chess position evaluation with fixes for vanishing gradients"""
     
-    def __init__(self, dropout=0.0):
+    def __init__(self, dropout=0.1):
         super(ChessNet, self).__init__()
         
         # Input: 14 channels (6 piece types * 2 colors + side to move + en passant)
@@ -102,7 +102,7 @@ class ChessNet(nn.Module):
         
         # Three residual blocks
         self.residual_blocks = nn.ModuleList([
-            ResidualBlock(64) for _ in range(1)
+            ResidualBlock(64) for _ in range(3)
         ])
         
         # Value head with smaller layers to prevent overfitting
@@ -182,7 +182,7 @@ def train_model(dataset_path, output_model, epochs=500, batch_size=64, learning_
     print(f"Validation set: {len(val_dataset)} positions")
     
     # Create model with dropout
-    model = ChessNet(dropout=0.0)
+    model = ChessNet(dropout=0.1)
     
     # Load initial model weights if provided
     if initial_model_path and Path(initial_model_path).exists():
