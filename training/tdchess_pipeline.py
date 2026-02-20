@@ -25,7 +25,7 @@ from train_neural import train_model, ChessNet, ChessDataset
 class TDChessTraining:
     """Manages the complete training pipeline for TDChess."""
     
-    def __init__(self, model_dir="../model", iterations=50, games_per_iteration=250,
+    def __init__(self, model_dir="../model", iterations=50, games_per_iteration=1000,
                  lambda_value=0.7, temperature=0.8, learning_rate=0.001, num_workers=1,
                  initial_positions=10000, initial_depth=4):
         """Initialize the training pipeline."""
@@ -354,7 +354,7 @@ def main():
     parser = argparse.ArgumentParser(description='TDChess Training Pipeline')
     parser.add_argument('--model-dir', type=str, default=str(default_model_dir), help='Directory for models and datasets')
     parser.add_argument('--iterations', type=int, default=50, help='Number of training iterations')
-    parser.add_argument('--games', type=int, default=250, help='Number of self-play games per iteration')
+    parser.add_argument('--games', type=int, default=1000, help='Number of self-play games per iteration')
     parser.add_argument('--lambda', dest='lambda_value', type=float, default=0.7, help='TD(λ) parameter')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for move selection')
     parser.add_argument('--learning-rate', type=float, default=0.0001, help='Learning rate for neural network training')
