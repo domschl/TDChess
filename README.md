@@ -17,7 +17,6 @@ TDChess is a modular chess engine built in C (C23 standard) that combines tradit
   - `neural.c/h`: Neural network interface
   - `pytorch_binding.cpp/h`: PyTorch C++ bindings
   - `search.c/h`: Alpha-beta search
-  - `td_learning.c/h`: TD(λ) implementation
   - `self_play.c/h`: Self-play generation
 - `training/`: All Python scripts for dataset generation, training, and pipeline
   - `train_neural.py`: Neural network training
@@ -110,7 +109,7 @@ TDChess supports multiple modes of operation:
 ./TDChess neural
 
 # Test neural evaluation with a trained model
-./TDChess neural-eval [model]
+./TDChess neural-eval [model.pt]
 
 # Play against the engine with neural evaluation
 ./TDChess play-neural [model] [depth]
@@ -127,12 +126,6 @@ TDChess supports multiple modes of operation:
 
 # Generate self-play games
 ./TDChess generate-self-play [model.pt] [output.json] [games] [temperature]
-
-# Run TD-Lambda training cycle
-./TDChess td-lambda [initial_model.pt] [output_model.pt] [games] [lambda]
-
-# Convert between model formats
-./TDChess convert-model [input_model] [output_model.pt]
 ```
 
 ### Training pipeline
@@ -193,7 +186,6 @@ TDChess uses the PyTorch C++ API (libtorch) for neural network inference:
 - neural.c/h - Neural network interface
 - pytorch_binding.cpp/h - PyTorch C++ bindings
 - search.c/h - Alpha-beta search implementation
-- td_learning.c/h - Temporal difference learning
 - self_play.c/h - Self-play game generation
 - perft.c/h - Performance testing
 - visualization.c/h - Board visualization
