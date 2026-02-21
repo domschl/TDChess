@@ -263,7 +263,7 @@ class TDChessTraining:
                 # Look ahead to future positions
                 for k in range(1, len(game_positions) - i):
                     future_pos = game_positions[i + k]
-                    future_eval = future_pos["evaluation"]
+                    future_eval = future_pos["evaluation"] * 100.0  # Convert pawn units back to centipawns
 
                     # Convert to white's perspective if necessary
                     if future_pos["side_to_move"] == "BLACK":

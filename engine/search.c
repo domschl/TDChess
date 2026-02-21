@@ -9,6 +9,7 @@
 #include <string.h>
 #include <time.h>
 #include <float.h>
+#define INFINITY_SCORE 20000.0f
 #include <inttypes.h>
 #include <math.h>
 
@@ -408,7 +409,7 @@ float search_position(Board *board, int depth, Move *best_move, uint64_t *nodes_
         uint64_t board_key = compute_zobrist_key(board);
 
         // Run alpha-beta search
-        score = alpha_beta(board, depth, -FLT_MAX, FLT_MAX, nodes_searched, 0,
+        score = alpha_beta(board, depth, -INFINITY_SCORE, INFINITY_SCORE, nodes_searched, 0,
                            board_key, pv_line, &pv_length);
 
         // Copy best move from PV if available
@@ -452,7 +453,7 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
     }
     
     // Safety score initialized correctly for alpha/beta
-    best_score = -FLT_MAX;
+    best_score = -INFINITY_SCORE;
 
     // Calculate the board's Zobrist hash key
     uint64_t board_key = compute_zobrist_key(board);
@@ -461,8 +462,8 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
     double start_ms = (double)clock() * 1000.0 / CLOCKS_PER_SEC;
 
     // Aspiration window configuration
-    float alpha = -FLT_MAX;
-    float beta = FLT_MAX;
+    float alpha = -INFINITY_SCORE;
+    float beta = INFINITY_SCORE;
     float window = 0.5f;  // 50 centipawns initial window
 
     // Iterative deepening loop
@@ -472,8 +473,8 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
             alpha = best_score - window;
             beta = best_score + window;
         } else {
-            alpha = -FLT_MAX;
-            beta = FLT_MAX;
+            alpha = -INFINITY_SCORE;
+            beta = INFINITY_SCORE;
         }
 
         while (true) {
@@ -482,20 +483,20 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
             if (search_time_up) break;
 
             if (score <= alpha) {
-                if (alpha == -FLT_MAX) { // Already at min, accept it
+                if (alpha == -INFINITY_SCORE) { // Already at min, accept it
                     best_score = score;
                     break;
                 }
                 // Fail low: score is worse than expected, expand alpha
-                alpha = -FLT_MAX;
+                alpha = -INFINITY_SCORE;
                 if (verbosity > 1) printf("info string Aspiration fail low at depth %d (score %.4f)\n", depth, score);
             } else if (score >= beta) {
-                if (beta == FLT_MAX) { // Already at max, accept it
+                if (beta == INFINITY_SCORE) { // Already at max, accept it
                     best_score = score;
                     break;
                 }
                 // Fail high: score is better than expected, expand beta
-                beta = FLT_MAX;
+                beta = INFINITY_SCORE;
                 if (verbosity > 1) printf("info string Aspiration fail high at depth %d (score %.4f)\n", depth, score);
             } else {
                 // Within window
@@ -526,16 +527,16 @@ float iterative_deepening_search(Board *board, int max_depth, Move *best_move, u
             double elapsed_ms = (double)clock() * 1000.0 / CLOCKS_PER_SEC - start_ms;
 
             // Convert score to UCI format (cp or mate)
-            if (best_score > 800.0f) {
+            if (best_score == INFINITY_SCORE) {
+                printf("info depth %d score cp 0 info string +Inf", depth);
+            } else if (best_score == -INFINITY_SCORE) {
+                printf("info depth %d score cp 0 info string -Inf", depth);
+            } else if (best_score >= 800.0f) {
                 int mate_moves = (int)(1001.0f - best_score) / 2;
                 printf("info depth %d score mate %d", depth, mate_moves);
-            } else if (best_score < -800.0f) {
+            } else if (best_score <= -800.0f) {
                 int mate_moves = (int)(-1001.0f - best_score) / 2;
                 printf("info depth %d score mate %d", depth, mate_moves);
-            } else if (best_score == FLT_MAX) {
-                printf("info depth %d score cp 0 info string +Inf", depth);
-            } else if (best_score == -FLT_MAX) {
-                printf("info depth %d score cp 0 info string -Inf", depth);
             } else {
                 int score_cp = (int)(best_score * 100.0f + (best_score >= 0 ? 0.5f : -0.5f));
                 printf("info depth %d score cp %d", depth, score_cp);
@@ -647,7 +648,7 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
     score_moves(board, &moves, tt_move, ply);
 
     int move_count = 0;
-    float best_score = -FLT_MAX;  // Initialize to worst possible score
+    float best_score = -INFINITY_SCORE;  // Initialize to worst possible score
     Move best_move = {0};
     int tt_flag = TT_ALPHA;
 
@@ -665,7 +666,7 @@ float alpha_beta(Board *board, int depth, float alpha, float beta, uint64_t *nod
         move_count++;
 
         if (ply == 0 && search_config.verbosity > 0) {
-            report_search_progress(depth, *nodes, (best_score == -FLT_MAX) ? 0 : best_score, move_count, moves.count, current_move);
+            report_search_progress(depth, *nodes, (best_score == -INFINITY_SCORE) ? 0 : best_score, move_count, moves.count, current_move);
         }
 
         // Make the move on a copy of the board
@@ -1031,16 +1032,16 @@ static void report_search_progress(int depth, uint64_t nodes, float score, int m
         // \r to return to start, \033[K to clear till end of line
         printf("\r\033[Kinfo depth %d ", depth);
         
-        if (score > 800.0f) {
+        if (score == INFINITY_SCORE) {
+            printf("score cp 0 info string +Inf");
+        } else if (score == -INFINITY_SCORE) {
+            printf("score cp 0 info string -Inf");
+        } else if (score >= 800.0f) {
             int mate_moves = (int)(1001.0f - score) / 2;
             printf("score mate %d", mate_moves);
-        } else if (score < -800.0f) {
+        } else if (score <= -800.0f) {
             int mate_moves = (int)(-1001.0f - score) / 2;
             printf("score mate %d", mate_moves);
-        } else if (score == FLT_MAX) {
-            printf("score cp 0 info string +Inf");
-        } else if (score == -FLT_MAX) {
-            printf("score cp 0 info string -Inf");
         } else {
             int score_cp = (int)(score * 100.0f + (score >= 0 ? 0.5f : -0.5f));
             printf("score cp %d", score_cp);

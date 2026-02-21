@@ -66,7 +66,6 @@ message(STATUS "Found PyTorch: ${Torch_DIR}")
 
 # Source files
 
-# Source files (now in engine/)
 set(SOURCES
     engine/main.c
     engine/board.c
@@ -76,7 +75,6 @@ set(SOURCES
     engine/search.c
     engine/neural.c
     engine/visualization.c
-    engine/td_learning.c
     engine/zobrist.c
     engine/python_binding.c
     engine/self_play.c

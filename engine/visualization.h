@@ -3,7 +3,6 @@
 
 #include "board.h"
 #include "movegen.h"
-#include "td_learning.h"
 #include <stdbool.h>
 
 // Print a chess board with Unicode symbols and ANSI colors
@@ -27,8 +26,6 @@ void print_positions_with_evals(const Board *positions, float *evaluations, int 
 // Check if neural evaluation is available
 bool is_neural_initialized(void);
 
-// New function to print games with recorded moves
-void print_game_with_recorded_moves(const GamePosition *game_positions, int num_positions);
 
 // Print an evaluation score with infinity symbol for mates
 void print_evaluation(float score);

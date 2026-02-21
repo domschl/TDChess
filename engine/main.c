@@ -11,7 +11,6 @@
 #include "neural.h"
 #include "zobrist.h"
 #include "python_binding.h"
-#include "td_learning.h"
 #include "visualization.h"
 #include "self_play.h"
 #include "pytorch_binding.h"  // Add this to your imports
@@ -446,51 +445,6 @@ void cmd_test_neural_model(const char *model_path) {
     // Explicit cleanup is not needed due to atexit() registration
 }
 
-// Add new td-lambda command
-void cmd_td_lambda_training(const char *initial_model, const char *output_model,
-                            int num_games, float lambda, float temperature);
-
-// Update the function implementation with temperature
-void cmd_td_lambda_training(const char *initial_model, const char *output_model,
-                            int num_games, float lambda, float temperature) {
-    printf("Starting TD-Lambda training cycle\n");
-
-    // Set up parameters
-    TDLambdaParams params;
-    params.lambda = lambda;
-    params.learning_rate = 0.0001f;
-    params.temperature = temperature;  // Use the temperature parameter
-    params.num_games = num_games;
-    params.max_moves = 100;
-    params.model_path = initial_model;
-
-    // Create dataset filename
-    char dataset_path[256];
-    snprintf(dataset_path, sizeof(dataset_path), "%s.dataset.json", output_model);
-    params.output_path = dataset_path;
-
-    // Generate TD-Lambda dataset
-    if (!generate_td_lambda_dataset(&params)) {
-        printf("Failed to generate TD-Lambda dataset\n");
-        return;
-    }
-
-    // Train the model using Python script
-    char command[512];
-    snprintf(command, sizeof(command),
-             "python train_neural.py --dataset %s --output %s --epochs 100 --batch-size 128 --learning-rate %.5f",
-             dataset_path, output_model, params.learning_rate);
-
-    printf("Running training command: %s\n", command);
-    int result = system(command);
-
-    if (result != 0) {
-        printf("Training failed with exit code %d\n", result);
-    } else {
-        printf("TD-Lambda training cycle completed successfully\n");
-        printf("New model saved to: %s\n", output_model);
-    }
-}
 
 void test_pytorch(const char *model_path) {
     printf("Testing PyTorch model: %s\n", model_path);
@@ -564,14 +518,7 @@ int main(int argc, char **argv) {
             int depth = (argc > 2) ? atoi(argv[2]) : 3;
             const char *model_path = (argc > 3) ? argv[3] : "chess_model.onnx";
             play_with_neural(model_path, depth);
-        } else if (strcmp(argv[1], "td-lambda") == 0) {
-            // TD-Lambda training
-            const char *initial_model = (argc > 2 && strlen(argv[2]) > 0) ? argv[2] : "chess_model.onnx";
-            const char *output_model = (argc > 3) ? argv[3] : "chess_model_improved.onnx";
-            int num_games = (argc > 4) ? atoi(argv[4]) : 100;
-            float lambda = (argc > 5) ? atof(argv[5]) : 0.7f;
-            float temperature = (argc > 6) ? atof(argv[6]) : 1.0f;
-            cmd_td_lambda_training(initial_model, output_model, num_games, lambda, temperature);
+
         } else if (strcmp(argv[1], "generate-self-play") == 0) {
             if (argc < 6) {
                 printf("Usage: %s generate-self-play <model_path> <output_path> <num_games> <temperature>\n", argv[0]);
@@ -665,7 +612,6 @@ int main(int argc, char **argv) {
             printf("  neural-eval [model]  - Test neural evaluation with ONNX model\n");
             printf("  generate-dataset [file] [count] [depth] - Generate training dataset\n");
             printf("  play-neural [depth] [model] - Play against computer with neural evaluation\n");
-            printf("  td-lambda [initial_model] [output_model] [games] [lambda] - Run TD-Lambda training\n");
             printf("  generate-self-play [model_path] [output_path] [num_games] [temperature] - Generate self-play games\n");
             printf("  bench [depth] [hash_size_mb] - Run benchmark with specified depth and hash size\n");
         }
