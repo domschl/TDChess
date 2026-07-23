@@ -263,7 +263,9 @@ class TDChessTraining:
                 # Look ahead to future positions
                 for k in range(1, len(game_positions) - i):
                     future_pos = game_positions[i + k]
-                    future_eval = future_pos["evaluation"] * 100.0  # Convert pawn units back to centipawns
+                    future_eval = (
+                        future_pos["evaluation"] * 100.0
+                    )  # Convert pawn units back to centipawns
 
                     # Convert to white's perspective if necessary
                     if future_pos["side_to_move"] == "BLACK":
@@ -365,8 +367,8 @@ class TDChessTraining:
             train_model(
                 str(td_dataset_path),
                 str(output_model),
-                100,
-                batch_size=128,
+                256,
+                batch_size=256,
                 learning_rate=self.learning_rate,
                 initial_model_path=str(current_model),
             )
@@ -407,7 +409,7 @@ def main():
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=0.00005,
+        default=0.000005,
         help="Learning rate for neural network training",
     )
     parser.add_argument(
